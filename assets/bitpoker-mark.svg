@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
+  <title id="title">BitPoker spade mark</title>
+  <desc id="description">A silver spade inside a gold ring on a dark square.</desc>
+  <rect width="64" height="64" rx="15" fill="#11151d"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#e6ad38" stroke-width="3"/>
+  <path fill="#aab3c1" d="M32 17.5c-2.4 5.8-11.7 12.1-11.7 19.2 0 4.2 2.9 7 6.6 7 1.7 0 3.2-.7 4.3-1.9-.4 3.7-1.7 6.7-4.8 8.7h11.2c-3.1-2-4.4-5-4.8-8.7 1.1 1.2 2.6 1.9 4.3 1.9 3.7 0 6.6-2.8 6.6-7 0-7.1-9.3-13.4-11.7-19.2Z"/>
+</svg>

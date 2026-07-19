@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BitPoker — Peer-to-peer poker, settled on chain</title>
+    <meta
+      name="description"
+      content="BitPoker is a peer-to-peer poker protocol with encrypted play, on-chain escrow, and deterministic dispute adjudication."
+    >
+    <meta name="theme-color" content="#10141c">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="BitPoker — Poker without a dealer">
+    <meta
+      property="og:description"
+      content="Encrypted peer-to-peer poker with verifiable settlement on Pokerchain."
+    >
+    <link rel="icon" href="assets/bitpoker-mark.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600;700&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="sections.css">
+    <link rel="stylesheet" href="responsive.css">
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="BitPoker home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="38" height="38">
+          <span class="brand-word">BITPOKER</span>
+          <span class="brand-edition">TESTNET</span>
+        </a>
+
+        <button
+          class="menu-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="primary-navigation"
+          aria-label="Open navigation"
+          data-menu-toggle
+        >
+          <span></span>
+          <span></span>
+        </button>
+
+        <nav class="primary-nav" id="primary-navigation" aria-label="Primary navigation">
+          <a href="#technology">Protocol</a>
+          <a href="#stack">Stack</a>
+          <a href="#testnet">Testnet</a>
+          <a href="#developers">Developers</a>
+          <a
+            class="nav-source"
+            href="https://github.com/bitworker20"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Source
+            <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top">
+        <div class="section-shell hero-layout">
+          <div class="hero-copy">
+            <p class="status-line">
+              <span class="status-dot" aria-hidden="true"></span>
+              Engineering testnet · verified 17 July 2026
+            </p>
+            <h1>Poker without<br>a dealer.</h1>
+            <p class="hero-deck">
+              BitPoker is an end-to-end, peer-to-peer poker stack. Players hold
+              their keys, encrypted hands stay between peers, and Pokerchain
+              settles the result—or adjudicates a dispute—on chain.
+            </p>
+            <div class="hero-actions">
+              <a
+                class="button button-primary"
+                href="https://github.com/bitworker20/pokerchain/blob/main/docs/TESTNET.md"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Run the testnet
+                <span aria-hidden="true">↗</span>
+              </a>
+              <a class="button button-secondary" href="#technology">See how it works</a>
+            </div>
+            <p class="hero-note">Experimental software for developers and protocol research.</p>
+          </div>
+
+          <div class="hero-visual" aria-label="A verified BitPoker testnet hand">
+            <div class="session-bar">
+              <div>
+                <span class="session-label">TESTNET SESSION</span>
+                <strong>#27 · HEADS-UP NLH</strong>
+              </div>
+              <span class="session-state"><i aria-hidden="true"></i> SETTLED</span>
+            </div>
+
+            <div class="poker-table">
+              <div class="seat seat-opponent">
+                <span class="seat-name">PEER B</span>
+                <strong>153 CHIP</strong>
+              </div>
+
+              <div class="community-cards" aria-label="Community cards">
+                <span class="playing-card black">5<small>♣</small></span>
+                <span class="playing-card red">10<small>♥</small></span>
+                <span class="playing-card red">A<small>♥</small></span>
+                <span class="playing-card red">8<small>♥</small></span>
+                <span class="playing-card black">3<small>♠</small></span>
+              </div>
+
+              <div class="pot-marker">
+                <span>POT CLEARED</span>
+                <strong>ESCROW 0</strong>
+              </div>
+
+              <div class="seat seat-local">
+                <span class="seat-name">PEER A · YOU</span>
+                <strong>47 CHIP</strong>
+              </div>
+            </div>
+
+            <div class="proof-strip">
+              <span>20 hands</span>
+              <span>signed result</span>
+              <span>relay paid</span>
+              <strong>ledger balanced</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="protocol-band" aria-label="BitPoker protocol properties">
+          <div class="section-shell protocol-band-inner">
+            <p><strong>Private by design.</strong> Cards are encrypted between players.</p>
+            <p><strong>Neutral by construction.</strong> The relay is transport, never dealer.</p>
+            <p><strong>Final by consensus.</strong> Stakes settle against verified outcomes.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="technology section-shell" id="technology">
+        <div class="section-intro">
+          <h2>The hand stays between players.<br>The settlement doesn’t.</h2>
+          <p>
+            Poker needs hidden information. Blockchains need public agreement.
+            BitPoker separates the two, keeping gameplay peer-to-peer while using
+            the chain for matchmaking, escrow, settlement, and the exceptional
+            dispute path.
+          </p>
+        </div>
+
+        <ol class="protocol-flow">
+          <li>
+            <span class="flow-number">01</span>
+            <div>
+              <h3>Match &amp; lock</h3>
+              <p>Compatible game intents create a session and lock both stakes in escrow.</p>
+            </div>
+          </li>
+          <li>
+            <span class="flow-number">02</span>
+            <div>
+              <h3>Shuffle &amp; play</h3>
+              <p>Mental-poker cryptography deals the hand over an assigned, untrusted relay.</p>
+            </div>
+          </li>
+          <li>
+            <span class="flow-number">03</span>
+            <div>
+              <h3>Sign &amp; settle</h3>
+              <p>Matching signed results release escrow with exact chip conservation.</p>
+            </div>
+          </li>
+          <li class="flow-dispute">
+            <span class="flow-number">04</span>
+            <div>
+              <h3>Prove when needed</h3>
+              <p>Evidence is replayed by the deterministic C++ engine inside validator consensus.</p>
+            </div>
+          </li>
+        </ol>
+
+        <aside class="trust-statement">
+          <p>“Trust the protocol” should be a claim you can test.</p>
+          <span>Every settlement path is represented in code, fixtures, and end-to-end evidence.</span>
+        </aside>
+      </section>
+
+      <section class="stack-section" id="stack">
+        <div class="section-shell stack-layout">
+          <div class="stack-copy">
+            <h2>A whole poker network.<br>Not a dApp skin.</h2>
+            <p>
+              The repository spans the game engine, native clients, chain,
+              relay, wallet integration, and a live-data explorer. One session
+              protocol crosses native and WebAssembly environments.
+            </p>
+            <ul class="game-list" aria-label="Implemented poker games">
+              <li>Texas Hold’em</li>
+              <li>Zha Jin Hua</li>
+              <li>Community Card</li>
+            </ul>
+          </div>
+
+          <div class="system-stack" aria-label="BitPoker system architecture">
+            <div class="stack-row stack-client">
+              <span>PLAY</span>
+              <div>
+                <strong>Qt · Android · TUI · WebAssembly</strong>
+                <small>Players keep keys and sign their own transactions.</small>
+              </div>
+            </div>
+            <div class="stack-row stack-engine">
+              <span>PROTOCOL</span>
+              <div>
+                <strong>C++20 mental-poker engine</strong>
+                <small>Shuffle proofs, betting state, resync, and signed transcripts.</small>
+              </div>
+            </div>
+            <div class="stack-row stack-relay">
+              <span>TRANSPORT</span>
+              <div>
+                <strong>Go WebSocket relays</strong>
+                <small>Untrusted routing with signed service receipts and on-chain rewards.</small>
+              </div>
+            </div>
+            <div class="stack-row stack-chain">
+              <span>SETTLE</span>
+              <div>
+                <strong>Pokerchain · Cosmos SDK</strong>
+                <small>Matchmaking, escrow, payouts, relay registry, and adjudication.</small>
+              </div>
+            </div>
+            <div class="stack-row stack-observe">
+              <span>VERIFY</span>
+              <div>
+                <strong>Lightweight Explorer</strong>
+                <small>Blocks, sessions, transactions, and signed relay health from LCD/RPC.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="testnet-section" id="testnet">
+        <div class="section-shell testnet-layout">
+          <div class="testnet-copy">
+            <p class="proof-kicker">LATEST FULL-NETWORK PROOF</p>
+            <h2>Not a roadmap demo.<br>A repeatable network test.</h2>
+            <p>
+              The current three-node environment exercises real validators,
+              player wallets, WebSocket relay transport, game actions, dispute
+              timeouts, cooperative settlement, and relay rewards.
+            </p>
+            <a
+              class="text-link"
+              href="https://github.com/bitworker20/pokerchain/blob/main/docs/reports/TESTNET_E2E_2026-07-14.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Read the full E2E report <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <div class="verification-ledger">
+            <div class="ledger-header">
+              <span>VERIFICATION LEDGER</span>
+              <span>RESULT</span>
+            </div>
+            <dl>
+              <div>
+                <dt>27 on-chain sessions</dt>
+                <dd><span>27 / 27</span> settled</dd>
+              </div>
+              <div>
+                <dt>Action scenario matrix</dt>
+                <dd><span>18 / 18</span> passed</dd>
+              </div>
+              <div>
+                <dt>Relay reward claims</dt>
+                <dd><span>26 / 26</span> confirmed</dd>
+              </div>
+              <div>
+                <dt>Long-running session</dt>
+                <dd><span>20 hands</span> reconciled</dd>
+              </div>
+              <div>
+                <dt>Timeout dispute path</dt>
+                <dd><span>escrow</span> returned</dd>
+              </div>
+              <div>
+                <dt>Native interoperability</dt>
+                <dd><span>TUI ↔ Qt</span> settled</dd>
+              </div>
+            </dl>
+            <p>Guide last verified · 17 JUL 2026</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="developers section-shell" id="developers">
+        <div class="developer-heading">
+          <h2>Take a seat in the stack.</h2>
+          <p>
+            Run the network, inspect the protocol, or build a client. The first
+            version is deliberately for people who want to verify the machinery.
+          </p>
+        </div>
+
+        <div class="developer-grid">
+          <article class="quickstart-panel">
+            <div class="terminal-topbar">
+              <span>LOCAL TESTNET</span>
+              <span>bash</span>
+            </div>
+            <pre><code><span>$</span> make
+<span>$</span> make test
+<span>$</span> cd pokerchain
+<span>$</span> scripts/testnet_genesis.sh \
+    --binary build/pokerchaind --force</code></pre>
+            <a
+              href="https://github.com/bitworker20/pokerchain/blob/main/docs/TESTNET.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Full testnet guide <span aria-hidden="true">↗</span></a>
+          </article>
+
+          <div class="developer-links">
+            <a
+              href="https://github.com/bitworker20/pokerchain"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>CHAIN &amp; RELAY</span>
+              <strong>Run Pokerchain</strong>
+              <small>Cosmos SDK node, relay daemon, signer, and deployment docs.</small>
+              <i aria-hidden="true">↗</i>
+            </a>
+            <a
+              href="https://github.com/bitworker20/explorer"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>OBSERVABILITY</span>
+              <strong>Inspect the Explorer</strong>
+              <small>Live chain data and cryptographically signed relay health.</small>
+              <i aria-hidden="true">↗</i>
+            </a>
+            <a
+              href="https://github.com/bitworker20/keplr-wallet"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>WALLET SURFACE</span>
+              <strong>Follow the web path</strong>
+              <small>Wallet integration work built on the protocol’s WebAssembly core.</small>
+              <i aria-hidden="true">↗</i>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-layout">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="42" height="42">
+          <div>
+            <strong>BITPOKER</strong>
+            <span>Peer-to-peer poker infrastructure.</span>
+          </div>
+        </div>
+        <p class="footer-note">
+          Experimental software. Not a hosted gambling service and
+          not intended for wagering real-world value.
+        </p>
+        <div class="footer-meta">
+          <a href="#top">Back to top ↑</a>
+          <span>© <span data-current-year>2026</span> BitPoker</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
