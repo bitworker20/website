@@ -8,15 +8,84 @@ small script — no framework, no build step, no bundler. Everything on it is
 sourced from `docs/whitepaper/bitpoker-whitepaper.md` in the monorepo; if the
 whitepaper and the page disagree, the whitepaper is right and the page is stale.
 
+**The site is currently behind a coming-soon gate** — see below. `index.html` is
+the gate; the real page is the `<token>.html` file, named after a token derived
+from the passphrase.
+
 ```
-index.html          the page
-styles.css          the only stylesheet
-script.js           mobile menu + copy buttons (progressive enhancement)
+index.html          the coming-soon page (self-contained: inline CSS, no hints)
+gate.js             the knock; holds a salt, a verifier and the target filename
+<token>.html        the real site
+styles.css          the site's stylesheet
+script.js           mobile menu, copy buttons, "lock this browser"
 install.sh          the one-line server installer the page links to
-assets/             brand marks, favicons, social card, whitepaper PDF
+robots.txt          disallow everything, both pages
+tools/gate.py       rotate the passphrase, inspect or check the current one
+assets/             brand marks, favicons, social cards, whitepaper PDF
 assets/screenshots/ real captures of the Qt desktop client
 tests/test_site.py  contract suite
 ```
+
+## The coming-soon gate
+
+A JavaScript check on a static host would be theatre — the real page would still
+be sitting in the source, one *view source* away. So the passphrase is not a
+password checked against the content; **the passphrase is the address**.
+
+One PBKDF2-SHA256 derivation (250 000 iterations, random salt) produces 24 bytes
+that split into two independent halves:
+
+- **verifier** (16 bytes) — what the gate compares against, so a wrong
+  passphrase fails locally and silently. No request is made, so nothing on the
+  network can confirm a near miss, and there is no error message to grind
+  against.
+- **token** (8 bytes) — the filename the real page lives under. It is not
+  linked from anywhere, not named in `index.html`, and cannot be derived from
+  the verifier.
+
+Three ways in, all of them quiet:
+
+| | |
+|---|---|
+| Keyboard | just type the passphrase anywhere on the page — nothing is focused, nothing echoes |
+| Link | `https://<host>/#<passphrase>` — the hash is stripped from the URL before the redirect |
+| Phone | tap the mark five times; a password field appears |
+
+A browser that has been through remembers it (`localStorage`) and goes straight
+in next time; the *Lock this browser* link in the site footer forgets it.
+
+### What this does and does not protect
+
+It keeps the site **out of sight**, not out of reach:
+
+- The token is committed to this repository. **If this repository is public, the
+  address is public.** Rotate the passphrase at deploy time, or keep the repo
+  private.
+- A host with directory listing enabled defeats it completely. Check yours.
+- `crypto.subtle` requires a secure context — https, or `localhost` in testing.
+  Over plain http on a LAN address the gate cannot open at all.
+- Anyone who gets in can share the URL, and it keeps working until rotated.
+
+For actual access control, put the site behind HTTP basic auth or an identity
+proxy (Cloudflare Access, oauth2-proxy) and drop the gate. This is a locked door
+on a building with no walls.
+
+### Rotating
+
+```sh
+python3 tools/gate.py show                    # salt, iterations, target
+python3 tools/gate.py check 'some passphrase' # does it open the gate?
+python3 tools/gate.py set 'a new passphrase'  # rotate: renames the page too
+```
+
+`set` rewrites the config block in `gate.js` and renames the real page to the
+new token in one step; commit both. **The passphrase itself is stored nowhere** —
+only the verifier derived from it. Keep it in a password manager; if it is lost,
+`set` a new one.
+
+Going public later is one commit: rename the real page back to `index.html`,
+delete `gate.js`, `tools/gate.py` and `robots.txt`, and restore the page's
+`og:image` and indexable `robots` meta.
 
 ## Preview locally
 
@@ -24,7 +93,8 @@ tests/test_site.py  contract suite
 python3 -m http.server 8080     # from this directory
 ```
 
-Then open <http://127.0.0.1:8080>.
+Then open <http://127.0.0.1:8080> — `localhost` counts as a secure context, so
+the gate works there. Opening the files over `file://` will not open the gate.
 
 ## Run checks
 
@@ -34,11 +104,18 @@ From the monorepo root:
 python3 -m unittest discover -s website/tests -v
 ```
 
-24 tests: page structure and required sections, link-preview metadata, icons,
-every local asset actually existing on disk, external-link safety, the install
-commands on the page matching the roles `install.sh` accepts, the installer
-parsing and rejecting unknown roles, and the accessibility affordances (skip
-link, landmarks, menu semantics, screenshot alt text, reduced motion).
+32 tests: page structure and required sections, link-preview metadata, icons,
+every local asset existing on disk, external-link safety, the install commands
+on the page matching the roles `install.sh` accepts, the installer parsing and
+rejecting unknown roles, accessibility affordances (skip link, landmarks, menu
+semantics, screenshot alt text, reduced motion) — and, for the gate: that the
+coming-soon page leaks neither the address nor the content, that no other file
+in the repository names the target, that both pages are `noindex`, that the
+derivation is deterministic and salt-dependent, and that a wrong passphrase is
+rejected.
+
+The suite finds the real page the way the gate does, by reading `gate.js`, so
+rotating the passphrase does not break it.
 
 ## Screenshots
 
@@ -86,13 +163,13 @@ script.
 
 ## Before this goes live
 
-Three strings are written against hosts that do not exist yet. Each is marked
-in place; search for them:
+Four things are written against hosts or events that do not exist yet:
 
 | What | Where | Currently |
 |---|---|---|
-| Social-card URL | `index.html` `og:image` / `twitter:image` | relative `assets/og-image.png`; some scrapers will not resolve a relative URL — make it absolute once there is a domain |
-| Release assets | `index.html` download links, `install.sh` `BITPOKER_REPO` | `github.com/bitworker20/bitpoker/releases/latest/download/…` with assets `bitpoker-android-arm64.apk`, `bitpoker-extension.zip`, `bitpoker-{node,relay}-linux-{amd64,arm64}.tar.gz` and `checksums.txt` — confirm the repo name and publish those asset names |
+| The gate | `gate.js` | rotate the passphrase at deploy time, or remove the gate entirely when the site goes public |
+| Social-card URL | the site page's `og:image` / `twitter:image` | relative `assets/og-image.png`; some scrapers will not resolve a relative URL — make it absolute once there is a domain |
+| Release assets | the site page's download links, `install.sh` `BITPOKER_REPO` | `github.com/bitworker20/bitpoker/releases/latest/download/…` with assets `bitpoker-android-arm64.apk`, `bitpoker-extension.zip`, `bitpoker-{node,relay}-linux-{amd64,arm64}.tar.gz` and `checksums.txt` — confirm the repo name and publish those asset names |
 | Network manifest | `install.sh` `MANIFEST_URL` | `networks/pokerchain-testnet-1.env` in this repository, not yet created |
 
 The APK and the extension zip are **not** committed here; the download buttons
@@ -102,10 +179,10 @@ it should be readable without leaving the page.
 ## Deploy
 
 Serve this directory from any static host, keeping the relative paths intact.
-No build step.
+No build step. Serve it over https — the gate needs a secure context.
 
 ## Brand
 
-The marks, favicons and social card come from `docs/brand/` in the monorepo and
+The marks, favicons and social cards come from `docs/brand/` in the monorepo and
 are copied here — regenerate them there (`docs/brand/render.sh`), then copy, so
 the two do not drift.

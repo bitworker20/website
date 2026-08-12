@@ -3,29 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BitPoker — Poker with no dealer, no operator, no referee</title>
-    <meta
-      name="description"
-      content="BitPoker is a two-player poker protocol: the deck is shuffled jointly with mental cryptography, the money is escrowed by a Cosmos SDK chain, and disputed hands are replayed by a deterministic engine inside consensus."
-    >
-    <meta name="theme-color" content="#0B0E13">
+    <title>BitPoker</title>
+    <meta name="description" content="Coming soon.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="BitPoker — Poker without a dealer">
-    <meta
-      property="og:description"
-      content="Encrypted peer-to-peer poker with verifiable settlement on Pokerchain."
-    >
-    <!-- Relative for now; swap to an absolute https:// URL once the site has a
-         domain — some scrapers will not resolve a relative og:image. -->
-    <meta property="og:image" content="assets/og-image.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta
-      property="og:image:alt"
-      content="The BitPoker gold spade coin beside the wordmark and the line: poker without a dealer."
-    >
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:image" content="assets/og-image.png">
+    <meta property="og:title" content="BitPoker">
+    <meta property="og:description" content="Coming soon.">
+    <meta property="og:image" content="assets/og-card-soon.png">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
@@ -33,404 +18,89 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600&amp;family=Barlow:wght@400&amp;display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="styles.css">
-    <script src="script.js" defer></script>
+    <style>
+      :root { color-scheme: dark; }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        background:
+          radial-gradient(80% 60% at 50% 0%, rgba(227, 172, 62, .09), transparent 62%),
+          #0b0e13;
+        color: #ece7dc;
+        font-family: "Barlow", "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+      }
+
+      .mark {
+        width: 88px;
+        height: 88px;
+        display: block;
+        margin: 0 auto 30px;
+        cursor: default;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        font-weight: 600;
+        font-size: clamp(34px, 7vw, 54px);
+        letter-spacing: 4px;
+        text-transform: uppercase;
+      }
+
+      p {
+        margin: 18px auto 0;
+        max-width: 34ch;
+        color: #6d7d90;
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      .rule {
+        width: 64px;
+        height: 1px;
+        margin: 30px auto 0;
+        background: linear-gradient(90deg, transparent, #8a6a24, transparent);
+      }
+
+      input {
+        margin-top: 26px;
+        width: 232px;
+        padding: 11px 14px;
+        background: #131922;
+        border: 1px solid #212a36;
+        border-radius: 10px;
+        color: #ece7dc;
+        font: 400 16px/1 "Barlow", sans-serif;
+        text-align: center;
+      }
+      input:focus { outline: 2px solid #8a6a24; outline-offset: 2px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+      }
+    </style>
+    <script src="gate.js" defer></script>
   </head>
 
   <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-
-    <header class="site-header" id="top">
-      <div class="wrap header-inner">
-        <a class="brand" href="#top" aria-label="BitPoker home">
-          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
-          <span>BitPoker</span>
-        </a>
-
-        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
-          <span class="nav-toggle-bars" aria-hidden="true"></span>
-          Menu
-        </button>
-
-        <nav class="site-nav" id="site-nav" aria-label="Primary">
-          <a href="#protocol">Protocol</a>
-          <a href="#engineering">Engineering</a>
-          <a href="#clients">Clients</a>
-          <a href="#downloads">Downloads</a>
-          <a href="#node">Run a node</a>
-          <a class="nav-cta" href="assets/bitpoker-whitepaper.pdf">Whitepaper</a>
-        </nav>
-      </div>
-    </header>
-
-    <main id="main">
-      <!-- ─────────────────────────────  hero  ───────────────────────────── -->
-      <section class="hero">
-        <div class="wrap hero-inner">
-          <div class="hero-copy">
-            <p class="eyebrow">Testnet · Whitepaper revision 1.0</p>
-            <h1>Poker with no dealer,<br>no operator, no referee.</h1>
-            <p class="lede">
-              Two players shuffle the deck between themselves using mental
-              cryptography — no server ever holds it. The stake is escrowed by a
-              Cosmos SDK chain. If the players disagree, a deterministic C++
-              engine replays the hand <em>inside consensus</em>, from their own
-              signed messages, and every validator reaches the same verdict.
-            </p>
-            <div class="cta-row">
-              <a class="btn btn-primary" href="assets/bitpoker-whitepaper.pdf">Read the whitepaper</a>
-              <a class="btn" href="#downloads">Get a client</a>
-              <a class="btn btn-ghost" href="#node">Run a node</a>
-            </div>
-            <ul class="hero-facts">
-              <li><b>FourQ</b><span>Barnett–Smart deck, Neff shuffle proof</span></li>
-              <li><b>In consensus</b><span>C++ adjudicator via cgo, bit-identical</span></li>
-              <li><b>No subsidy</b><span>relays paid out of the pot's rake</span></li>
-            </ul>
-          </div>
-
-          <figure class="shot hero-shot">
-            <img
-              src="assets/screenshots/table.png"
-              alt="The BitPoker desktop client mid-hand: hole cards, a three-card flop, pot in CHIP, and fold / call / raise controls."
-              width="1180" height="760" loading="eager" decoding="async"
-            >
-            <figcaption>Desktop client, heads-up Texas Hold'em on the testnet.</figcaption>
-          </figure>
-        </div>
-      </section>
-
-      <!-- ───────────────────────────  protocol  ─────────────────────────── -->
-      <section class="section" id="protocol">
-        <div class="wrap">
-          <p class="eyebrow">How a hand works</p>
-          <h2>Four planes, four different trust assumptions</h2>
-          <p class="section-lede">
-            Nothing about the game itself goes on chain. The chain holds money and,
-            only when cooperation fails, judgment.
-          </p>
-
-          <ol class="steps">
-            <li>
-              <span class="step-no">01</span>
-              <h3>Match and escrow</h3>
-              <p>
-                A player publishes an <em>intent</em> — game, stake, terms. The chain
-                matches two of them heads-up, escrows both stakes, and assigns a relay.
-              </p>
-            </li>
-            <li>
-              <span class="step-no">02</span>
-              <h3>Shuffle, jointly</h3>
-              <p>
-                Each side permutes and re-encrypts the deck under a joint key and proves
-                it did so with a Neff-style verifiable-shuffle NIZK. A card opens only
-                when both key shares are released.
-              </p>
-            </li>
-            <li>
-              <span class="step-no">03</span>
-              <h3>Play through a relay</h3>
-              <p>
-                Two consumer endpoints behind NAT cannot reach each other, so frames go
-                through a relay that forwards ciphertext and learns nothing. Every
-                message is SchnorrQ-signed and replayable.
-              </p>
-            </li>
-            <li>
-              <span class="step-no">04</span>
-              <h3>Settle — or be judged</h3>
-              <p>
-                Both sign the same outcome and escrow is released to the final stacks.
-                If one refuses or vanishes, the other files evidence and consensus
-                adjudicates it.
-              </p>
-            </li>
-          </ol>
-
-          <figure class="diagram">
-            <svg viewBox="0 0 960 440" role="img" aria-labelledby="arch-title arch-desc">
-              <title id="arch-title">BitPoker architecture</title>
-              <desc id="arch-desc">
-                A consensus plane running pokerchain sits above a player client and a
-                relay daemon, which exchange opaque WebSocket frames; the client is built
-                on a portable sans-IO game core, and the chain calls the same core's
-                adjudicator inside consensus.
-              </desc>
-              <g class="d-box">
-                <rect x="20" y="20" width="920" height="112" rx="14"/>
-                <text class="d-title" x="44" y="56">pokerchain · Cosmos SDK — consensus plane</text>
-                <text class="d-sub" x="44" y="82">intents · matchmaking · escrow · relay registry &amp; assignment · session lifecycle</text>
-                <text class="d-sub" x="44" y="106">cooperative settlement · evidence · secrets · <tspan class="d-accent">AdjudicateSession → libpoker_adjudicator (C++, in consensus)</tspan></text>
-              </g>
-
-              <g class="d-arrow">
-                <path d="M180 132 L180 214"/>
-                <path d="M780 132 L780 214"/>
-                <text class="d-label" x="192" y="180">tx · query</text>
-                <text class="d-label" x="676" y="180">rewards · answers</text>
-              </g>
-
-              <g class="d-box">
-                <rect x="20" y="214" width="360" height="96" rx="14"/>
-                <text class="d-title" x="44" y="250">player client</text>
-                <text class="d-sub" x="44" y="276">native C++ or WASM in the browser</text>
-              </g>
-
-              <g class="d-box">
-                <rect x="580" y="214" width="360" height="96" rx="14"/>
-                <text class="d-title" x="604" y="250">poker-relayd</text>
-                <text class="d-sub" x="604" y="276">forwarding only · never sees a card</text>
-              </g>
-
-              <g class="d-arrow d-arrow-strong">
-                <path d="M392 262 L568 262"/>
-                <text class="d-label d-center" x="480" y="246">WSS frames</text>
-                <text class="d-label d-center" x="480" y="292">opaque to the relay</text>
-              </g>
-
-              <g class="d-arrow">
-                <path d="M180 310 L180 350"/>
-              </g>
-
-              <g class="d-box d-box-core">
-                <rect x="20" y="350" width="920" height="76" rx="14"/>
-                <text class="d-title" x="44" y="384">game core — sans-IO, portable, zero I/O</text>
-                <text class="d-sub" x="44" y="408">Barnett–Smart card crypto · Neff shuffle NIZK · SchnorrQ · Hold'em / Zhajinhua state machines · hand evaluation</text>
-              </g>
-            </svg>
-            <figcaption>
-              The same sans-IO core is linked by the validators (through cgo), by the
-              browser extension (through WASM) and by the native clients. That is why a
-              verdict computed in consensus matches the hand the players actually played.
-            </figcaption>
-          </figure>
-        </div>
-      </section>
-
-      <!-- ──────────────────────────  engineering  ───────────────────────── -->
-      <section class="section section-alt" id="engineering">
-        <div class="wrap">
-          <p class="eyebrow">What is actually hard</p>
-          <h2>Six decisions the design rests on</h2>
-
-          <div class="grid cards">
-            <article class="card">
-              <h3>Mental poker, not a shuffling server</h3>
-              <p>
-                The deck is a Barnett–Smart construction over the FourQ curve. Each
-                shuffle carries a proof that it is a genuine permutation and
-                re-encryption of the deck it received — so neither side can stack it, and
-                no third party has to be trusted not to look.
-              </p>
-            </article>
-
-            <article class="card">
-              <h3>Determinism as a link-time property</h3>
-              <p>
-                The adjudicator links <code>bitpoker_gamecore</code> only — never the
-                asio transport or the wallet. A CMake boundary check enforces it, so a
-                future <code>#include</code> cannot smuggle non-determinism into
-                consensus: the link simply fails.
-              </p>
-            </article>
-
-            <article class="card">
-              <h3>A three-layer determinism guard</h3>
-              <p>
-                Above that boundary sit fixed-width arithmetic and ordered containers, a
-                frozen eight-case corpus replayed on x86_64 and arm64, and digests diffed
-                against goldens in CI. Validators on different architectures must agree
-                byte for byte.
-              </p>
-            </article>
-
-            <article class="card">
-              <h3>Relays paid by their own adversaries</h3>
-              <p>
-                A relay collects a reward only by presenting <em>bilateral</em> receipts
-                — one signature from each of the two mutually hostile players. The rake
-                comes out of the pot, never from block subsidy, so the network does not
-                depend on inflation to stay reachable.
-              </p>
-            </article>
-
-            <article class="card">
-              <h3>Relay locations are never published</h3>
-              <p>
-                No endpoint appears on chain. A relay learns from consensus that it has
-                been assigned a session and answers with an ECIES-sealed blob carrying a
-                per-player one-time connect token. Nothing in the registry tells an
-                attacker where to aim.
-              </p>
-            </article>
-
-            <article class="card">
-              <h3>Failure modes designed first</h3>
-              <p>
-                A relayed connection gives no signal when the peer dies; a dispute path
-                that never opens is not a dispute path. Silence detection, bounded waits,
-                resume-after-reconnect and reproducible fault injection are part of the
-                protocol, not afterthoughts.
-              </p>
-            </article>
-          </div>
-
-          <div class="verify">
-            <h3>How it is checked</h3>
-            <table>
-              <caption class="visually-hidden">Verification layers and their mechanisms</caption>
-              <tbody>
-                <tr><th scope="row">C++ unit tests</th><td>~491 across crypto, protocol, games, chain, relay, adjudicator, client, robot</td></tr>
-                <tr><th scope="row">Go unit tests</th><td>46 files covering keeper, params, genesis, relay daemon, protocol</td></tr>
-                <tr><th scope="row">Determinism gate</th><td>frozen 8-case corpus replayed on x86_64 + arm64, digests diffed against goldens</td></tr>
-                <tr><th scope="row">Cross-language vectors</th><td>receipts, relay-id derivation, sealed endpoint blobs, signed ClientHello — pinned across C++ / Go / JS</td></tr>
-                <tr><th scope="row">End-to-end matrix</th><td>18 Hold'em / Zhajinhua scenarios against a live chain, relay and two clients, with per-hand settlement audits</td></tr>
-                <tr><th scope="row">Live testnet</th><td>full dispute chain on chain: silence → reconnect → resync → evidence → <code>DISPUTED</code> → verdict → escrow released</td></tr>
-              </tbody>
-            </table>
-            <p class="note">
-              Limitations and open problems are stated plainly in §12 of the whitepaper,
-              including the ones still unsolved.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <!-- ────────────────────────────  clients  ─────────────────────────── -->
-      <section class="section" id="clients">
-        <div class="wrap">
-          <p class="eyebrow">Clients</p>
-          <h2>One core, five front ends</h2>
-          <p class="section-lede">
-            Desktop, Android, terminal, CLI and a browser extension all drive the same
-            session logic. The extension reaches it through WebAssembly; the validators
-            reach it through cgo.
-          </p>
-
-          <div class="clients-layout">
-            <figure class="shot">
-              <img
-                src="assets/screenshots/settlement.png"
-                alt="A finished hand in the desktop client: a royal flush beats three of a kind, beside an on-chain settlement panel showing table result, relay fee and the amount paid by the chain."
-                width="1180" height="760" loading="lazy" decoding="async"
-              >
-              <figcaption>Showdown and the on-chain settlement it produced — gross, relay fee, net.</figcaption>
-            </figure>
-
-            <ul class="client-list">
-              <li><b>Qt desktop</b> — five screens, animated felt table for Hold'em and Zhajinhua.</li>
-              <li><b>Android</b> — the same Qt/QML build, packaged for phones.</li>
-              <li><b>Browser extension</b> — a Keplr fork; <code>gamecore.wasm</code> with JavaScript driving the session and an intent-approval popup.</li>
-              <li><b>TUI</b> — terminal wallet and table, with an intent watcher that auto-joins matched sessions; the usual host for unattended play.</li>
-              <li><b>CLI</b> — a thin REPL over the client library; the development reference.</li>
-              <li><b>Robot player</b> — a personality-driven bot for both games, built on a sans-IO decision seam so the brain is testable without a network.</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <!-- ───────────────────────────  downloads  ────────────────────────── -->
-      <section class="section section-alt" id="downloads">
-        <div class="wrap">
-          <p class="eyebrow">Downloads</p>
-          <h2>Get a client</h2>
-
-          <div class="grid downloads">
-            <article class="card download">
-              <h3>Android</h3>
-              <p>Qt/QML build, arm64. Sideload the APK — it is not in any store.</p>
-              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/bitpoker-android-arm64.apk">Download APK</a>
-              <p class="meta">arm64 · signed release build</p>
-            </article>
-
-            <article class="card download">
-              <h3>Browser extension</h3>
-              <p>Keplr-based wallet with the WASM game core. Unpack and load it as an unpacked extension.</p>
-              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/bitpoker-extension.zip">Download extension</a>
-              <p class="meta">Chromium · manifest v3 · unpacked</p>
-            </article>
-
-            <article class="card download">
-              <h3>Whitepaper</h3>
-              <p>The full technical document: construction, protocol, chain module, adjudication, relay economics, open problems.</p>
-              <a class="btn btn-primary" href="assets/bitpoker-whitepaper.pdf">Download PDF</a>
-              <p class="meta">Revision 1.0 · English</p>
-            </article>
-          </div>
-
-          <p class="note">
-            Testnet software with test-only chips. Read §12 of the whitepaper before
-            trusting it with anything you would miss.
-          </p>
-        </div>
-      </section>
-
-      <!-- ────────────────────────────  node  ────────────────────────────── -->
-      <section class="section" id="node">
-        <div class="wrap">
-          <p class="eyebrow">Operators</p>
-          <h2>Run it on a Linux server</h2>
-          <p class="section-lede">
-            One script, two roles. It installs the binary, creates a service user and a
-            systemd unit, and leaves you a node you can watch with
-            <code>journalctl -fu</code>.
-          </p>
-
-          <div class="grid installs">
-            <article class="card install">
-              <h3>Full node / validator</h3>
-              <p>Syncs pokerchain and carries the C++ adjudication engine that consensus calls on disputes.</p>
-              <div class="cmd">
-                <code id="cmd-node">curl -fsSL https://raw.githubusercontent.com/bitworker20/website/main/install.sh | sh -s -- node</code>
-                <button class="copy" type="button" data-copy-target="cmd-node">Copy</button>
-              </div>
-              <p class="meta">systemd unit <code>pokerchaind</code> · RPC 26657 · REST 1317 · gRPC 9090</p>
-            </article>
-
-            <article class="card install">
-              <h3>Relay</h3>
-              <p>Forwards session traffic and earns rake from the pots it carried, on bilateral receipts.</p>
-              <div class="cmd">
-                <code id="cmd-relay">curl -fsSL https://raw.githubusercontent.com/bitworker20/website/main/install.sh | sh -s -- relay</code>
-                <button class="copy" type="button" data-copy-target="cmd-relay">Copy</button>
-              </div>
-              <p class="meta">systemd unit <code>poker-relayd</code> · WSS 8443 · registers itself on chain</p>
-            </article>
-          </div>
-
-          <p class="note">
-            Inspect it first — <code>curl -fsSL …/install.sh | less</code>. It needs
-            root (or sudo), systemd and x86_64 or arm64. Both roles read overridable
-            environment variables for chain id, release channel and data directory.
-          </p>
-        </div>
-      </section>
+    <main>
+      <img class="mark" src="assets/bitpoker-mark.svg" alt="BitPoker" width="88" height="88" data-knock>
+      <h1>Coming soon</h1>
+      <div class="rule"></div>
+      <p>Heads-up poker without a dealer. Not open yet.</p>
+      <input type="password" hidden data-knock-field aria-label="Passphrase" autocomplete="off" spellcheck="false">
     </main>
-
-    <footer class="site-footer">
-      <div class="wrap footer-inner">
-        <div class="footer-brand">
-          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
-          <p>
-            BitPoker — trust-minimised heads-up poker over mental cryptography and
-            on-chain adjudication.
-          </p>
-        </div>
-
-        <nav class="footer-links" aria-label="Footer">
-          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
-          <a href="#downloads">Downloads</a>
-          <a href="#node">Run a node</a>
-          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
-        </nav>
-      </div>
-      <div class="wrap footer-note">
-        <p>Testnet software. Chips have no monetary value.</p>
-      </div>
-    </footer>
   </body>
 </html>

@@ -6,6 +6,11 @@ metadata a link preview needs must be present, the install commands on the page
 must be ones install.sh actually accepts, and the accessibility affordances
 (skip link, menu semantics, image alt text, reduced motion) must survive edits.
 
+The real page is not index.html — index.html is the coming-soon gate, and the
+page it opens is named after a token derived from the passphrase. These tests
+find it the way the gate does, by reading gate.js, and additionally check that
+nothing in the gate leaks the way in.
+
 Run from the repository root:
 
     python3 -m unittest discover -s website/tests -v
@@ -13,14 +18,22 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+import sys
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 
 SITE = Path(__file__).resolve().parent.parent
-INDEX = SITE / "index.html"
+GATE_JS = SITE / "gate.js"
+GATE_HTML = (SITE / "index.html").read_text(encoding="utf-8")
+GATE_CONFIG = json.loads(
+    re.search(r"var CONFIG = (\{.*?\});", GATE_JS.read_text(encoding="utf-8"), re.DOTALL).group(1)
+)
+
+INDEX = SITE / GATE_CONFIG["target"]
 HTML = INDEX.read_text(encoding="utf-8")
 CSS = (SITE / "styles.css").read_text(encoding="utf-8")
 INSTALL = SITE / "install.sh"
@@ -223,6 +236,79 @@ class TestInstaller(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("unknown role", result.stderr)
+
+
+class TestGate(unittest.TestCase):
+    def test_index_is_the_coming_soon_page(self) -> None:
+        self.assertIn("Coming soon", GATE_HTML)
+        self.assertIn("gate.js", GATE_HTML)
+
+    def test_index_leaks_neither_the_address_nor_the_content(self) -> None:
+        token = GATE_CONFIG["target"].split(".")[0]
+        self.assertNotIn(token, GATE_HTML)
+        for word in ("whitepaper", "download", "install.sh", "relay", "escrow"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, GATE_HTML.lower())
+
+    def test_nothing_in_the_site_links_back_to_the_gated_page_by_name(self) -> None:
+        # Any file that names the target hands out the address for free.
+        target = GATE_CONFIG["target"]
+        for path in SITE.rglob("*"):
+            if not path.is_file() or path.name in {target, "gate.js"}:
+                continue
+            if path.suffix not in {".html", ".css", ".js", ".txt", ".md", ".sh"}:
+                continue
+            if path.is_relative_to(SITE / "tests"):
+                continue
+            with self.subTest(path=path.name):
+                self.assertNotIn(target, path.read_text(encoding="utf-8", errors="ignore"))
+
+    def test_gate_config_is_complete_and_stretched(self) -> None:
+        self.assertEqual(len(GATE_CONFIG["salt"]), 32)
+        self.assertEqual(len(GATE_CONFIG["verifier"]), 32)
+        self.assertGreaterEqual(GATE_CONFIG["iterations"], 100_000)
+        self.assertGreater(GATE_CONFIG["length"], 5)
+        self.assertRegex(GATE_CONFIG["target"], r"^[0-9a-f]{16}\.html$")
+        self.assertTrue((SITE / GATE_CONFIG["target"]).is_file())
+
+    def test_neither_page_is_indexable(self) -> None:
+        for name, source in (("gate", GATE_HTML), ("site", HTML)):
+            with self.subTest(page=name):
+                self.assertIn('name="robots"', source)
+                self.assertIn("noindex", source)
+        robots = (SITE / "robots.txt").read_text(encoding="utf-8")
+        self.assertIn("Disallow: /", robots)
+
+    def test_shared_link_preview_says_nothing(self) -> None:
+        card = re.search(r'og:image" content="([^"]+)"', GATE_HTML)
+        self.assertIsNotNone(card)
+        self.assertEqual(card.group(1), "assets/og-card-soon.png")
+        self.assertTrue((SITE / card.group(1)).is_file())
+
+    def test_derivation_is_deterministic_and_salt_dependent(self) -> None:
+        sys.path.insert(0, str(SITE / "tools"))
+        try:
+            import gate  # noqa: PLC0415 — the tool under test
+        finally:
+            sys.path.pop(0)
+
+        first = gate.derive("a passphrase", "00" * 16)
+        self.assertEqual(first, gate.derive("a passphrase", "00" * 16))
+        self.assertNotEqual(first, gate.derive("a passphrase", "11" * 16))
+        self.assertNotEqual(first, gate.derive("another passphrase", "00" * 16))
+        verifier, token = first
+        self.assertEqual((len(verifier), len(token)), (32, 16))
+        self.assertNotIn(token, verifier)
+
+    def test_wrong_passphrase_is_rejected_by_the_tool(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SITE / "tools/gate.py"), "check", "not-the-passphrase"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("does not open", result.stdout)
 
 
 class TestAccessibility(unittest.TestCase):

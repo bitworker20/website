@@ -32,6 +32,21 @@
     });
   }
 
+  // "Lock this browser" forgets the gate and goes back to the coming-soon page.
+  // It does not revoke anything — whoever has the address still has it — it just
+  // stops this browser walking straight in.
+  var lock = document.querySelector("[data-lock]");
+  if (lock) {
+    lock.addEventListener("click", function () {
+      try {
+        window.localStorage.removeItem("bitpoker.gate");
+      } catch (error) {
+        /* storage blocked: there was nothing remembered to forget */
+      }
+      window.location.replace("index.html");
+    });
+  }
+
   // Clipboard access needs a secure context; without it the button says so
   // rather than silently doing nothing, and the command stays selectable.
   document.querySelectorAll(".copy").forEach(function (button) {
