@@ -1,52 +1,63 @@
-(() => {
+// Progressive enhancement only: the page is fully readable and navigable with
+// JavaScript disabled. Two behaviours live here — the mobile menu and the
+// copy buttons on the install commands.
+
+(function () {
   "use strict";
 
-  const header = document.querySelector(".site-header");
-  const menuToggle = document.querySelector("[data-menu-toggle]");
-  const navigation = document.querySelector("#primary-navigation");
-  const desktopQuery = window.matchMedia("(min-width: 761px)");
+  var toggle = document.querySelector(".nav-toggle");
+  var nav = document.getElementById("site-nav");
 
-  const setMenuState = (isOpen) => {
-    if (!(header instanceof HTMLElement) || !(menuToggle instanceof HTMLButtonElement)) {
-      return;
-    }
-
-    const nextState = String(isOpen);
-    header.dataset.menuOpen = nextState;
-    menuToggle.setAttribute("aria-expanded", nextState);
-    menuToggle.setAttribute("aria-label", isOpen ? "Close navigation" : "Open navigation");
-  };
-
-  if (menuToggle instanceof HTMLButtonElement) {
-    menuToggle.addEventListener("click", () => {
-      const isOpen = menuToggle.getAttribute("aria-expanded") === "true";
-      setMenuState(!isOpen);
+  if (toggle && nav) {
+    toggle.addEventListener("click", function () {
+      var open = nav.getAttribute("data-open") === "true";
+      nav.setAttribute("data-open", String(!open));
+      toggle.setAttribute("aria-expanded", String(!open));
     });
-  }
 
-  if (navigation instanceof HTMLElement) {
-    navigation.addEventListener("click", (event) => {
-      if (event.target instanceof HTMLAnchorElement) {
-        setMenuState(false);
+    // Following a link closes the menu; on desktop the attribute is inert.
+    nav.addEventListener("click", function (event) {
+      if (event.target.closest("a")) {
+        nav.setAttribute("data-open", "false");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && nav.getAttribute("data-open") === "true") {
+        nav.setAttribute("data-open", "false");
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.focus();
       }
     });
   }
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      setMenuState(false);
-      menuToggle?.focus();
-    }
-  });
+  // Clipboard access needs a secure context; without it the button says so
+  // rather than silently doing nothing, and the command stays selectable.
+  document.querySelectorAll(".copy").forEach(function (button) {
+    var source = document.getElementById(button.getAttribute("data-copy-target"));
+    if (!source) return;
 
-  desktopQuery.addEventListener("change", (event) => {
-    if (event.matches) {
-      setMenuState(false);
-    }
-  });
+    button.addEventListener("click", function () {
+      var done = function (label) {
+        var original = "Copy";
+        button.textContent = label;
+        button.setAttribute("data-copied", "true");
+        window.setTimeout(function () {
+          button.textContent = original;
+          button.removeAttribute("data-copied");
+        }, 2000);
+      };
 
-  const year = new Date().getFullYear();
-  document.querySelectorAll("[data-current-year]").forEach((element) => {
-    element.textContent = String(year);
+      if (!navigator.clipboard) {
+        done("Select it");
+        return;
+      }
+
+      navigator.clipboard.writeText(source.textContent.trim()).then(
+        function () { done("Copied"); },
+        function () { done("Select it"); }
+      );
+    });
   });
 })();

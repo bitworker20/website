@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="BitPoker">
+  <defs>
+    <path id="spade" d="M256 102.4
+      C256 102.4 133.1 209.9 102.4 266.2
+      C61.4 337.9 112.6 399.4 169.0 389.1
+      C204.8 381.4 227.8 358.4 235.5 337.9
+      C238.1 368.6 230.4 404.5 199.7 430.1
+      L312.3 430.1
+      C281.6 404.5 273.9 368.6 276.5 337.9
+      C284.2 358.4 307.2 381.4 343.0 389.1
+      C399.4 399.4 450.6 337.9 409.6 266.2
+      C378.9 209.9 256 102.4 256 102.4 Z"/>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="#E3AC3E"/>
+  <use href="#spade" fill="#221A11"/>
+  <g transform="translate(256 268) scale(.72) translate(-256 -268)">
+    <use href="#spade" fill="none" stroke="#E3AC3E" stroke-width="22" stroke-linejoin="round"/>
+  </g>
+</svg>

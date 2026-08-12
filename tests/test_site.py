@@ -1,163 +1,262 @@
+"""Contract tests for the BitPoker site.
+
+The site has no build step, so these are the only thing standing between an edit
+and a broken page: every local asset the HTML references must exist, the
+metadata a link preview needs must be present, the install commands on the page
+must be ones install.sh actually accepts, and the accessibility affordances
+(skip link, menu semantics, image alt text, reduced motion) must survive edits.
+
+Run from the repository root:
+
+    python3 -m unittest discover -s website/tests -v
+"""
+
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlparse
+
+SITE = Path(__file__).resolve().parent.parent
+INDEX = SITE / "index.html"
+HTML = INDEX.read_text(encoding="utf-8")
+CSS = (SITE / "styles.css").read_text(encoding="utf-8")
+INSTALL = SITE / "install.sh"
 
 
-SITE_ROOT = Path(__file__).resolve().parents[1]
+class TagCollector(HTMLParser):
+    """Collects (tag, attrs-as-dict) for every start tag."""
 
-
-class SiteParser(HTMLParser):
     def __init__(self) -> None:
-        super().__init__()
-        self.tags: list[str] = []
-        self.attributes: list[tuple[str, dict[str, str]]] = []
-        self.text_parts: list[str] = []
+        super().__init__(convert_charrefs=True)
+        self.tags: list[tuple[str, dict[str, str]]] = []
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
-        self.tags.append(tag)
-        self.attributes.append(
-            (tag, {name: value or "" for name, value in attrs})
-        )
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, {k: (v or "") for k, v in attrs}))
 
-    def handle_data(self, data: str) -> None:
-        normalized = " ".join(data.split())
-        if normalized:
-            self.text_parts.append(normalized)
+    handle_startendtag = handle_starttag
 
 
-class HomepageContractTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.index_path = SITE_ROOT / "index.html"
-        cls.css_path = SITE_ROOT / "styles.css"
-        cls.section_css_path = SITE_ROOT / "sections.css"
-        cls.responsive_css_path = SITE_ROOT / "responsive.css"
-        cls.script_path = SITE_ROOT / "script.js"
-        cls.html = cls.index_path.read_text(encoding="utf-8")
-        css_paths = [cls.css_path, cls.section_css_path, cls.responsive_css_path]
-        cls.css = "\n".join(path.read_text(encoding="utf-8") for path in css_paths)
-        cls.script = cls.script_path.read_text(encoding="utf-8")
-        cls.parser = SiteParser()
-        cls.parser.feed(cls.html)
-        cls.page_text = " ".join(cls.parser.text_parts)
+def parse() -> list[tuple[str, dict[str, str]]]:
+    collector = TagCollector()
+    collector.feed(HTML)
+    return collector.tags
 
-    def test_expected_site_files_exist(self) -> None:
-        required = [
-            self.index_path,
-            self.css_path,
-            self.section_css_path,
-            self.responsive_css_path,
-            self.script_path,
+
+TAGS = parse()
+
+
+def tags_named(name: str) -> list[dict[str, str]]:
+    return [attrs for tag, attrs in TAGS if tag == name]
+
+
+def meta_content(**match: str) -> str | None:
+    for attrs in tags_named("meta"):
+        if all(attrs.get(key) == value for key, value in match.items()):
+            return attrs.get("content")
+    return None
+
+
+class TestDocument(unittest.TestCase):
+    def test_declares_language_and_charset(self) -> None:
+        self.assertIn('<html lang="en">', HTML)
+        self.assertIn("charset", {key for attrs in tags_named("meta") for key in attrs})
+
+    def test_has_title_and_description(self) -> None:
+        self.assertIn("<title>BitPoker", HTML)
+        description = meta_content(name="description")
+        self.assertIsNotNone(description)
+        self.assertGreater(len(description or ""), 80)
+
+    def test_states_what_the_project_is(self) -> None:
+        # The page is the front door: these are the claims it must keep making.
+        for phrase in (
+            "mental cryptography",
+            "escrow",
+            "consensus",
+            "relay",
+            "whitepaper",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, HTML.lower())
+
+    def test_sections_the_navigation_points_at_all_exist(self) -> None:
+        ids = {attrs["id"] for _, attrs in TAGS if "id" in attrs}
+        for href in (
+            attrs["href"]
+            for attrs in tags_named("a")
+            if attrs.get("href", "").startswith("#")
+        ):
+            with self.subTest(href=href):
+                self.assertIn(href[1:], ids)
+
+    def test_required_sections_present(self) -> None:
+        for section in ("protocol", "engineering", "clients", "downloads", "node"):
+            with self.subTest(section=section):
+                self.assertIn(f'id="{section}"', HTML)
+
+
+class TestMetadata(unittest.TestCase):
+    def test_open_graph_and_twitter_card(self) -> None:
+        self.assertEqual(meta_content(property="og:type"), "website")
+        self.assertTrue(meta_content(property="og:title"))
+        self.assertTrue(meta_content(property="og:description"))
+        self.assertEqual(meta_content(property="og:image"), "assets/og-image.png")
+        self.assertEqual(meta_content(property="og:image:width"), "1200")
+        self.assertEqual(meta_content(property="og:image:height"), "630")
+        self.assertTrue(meta_content(property="og:image:alt"))
+        self.assertEqual(meta_content(name="twitter:card"), "summary_large_image")
+
+    def test_icons_cover_svg_png_and_apple(self) -> None:
+        rels = {attrs.get("rel"): attrs for attrs in tags_named("link")}
+        self.assertIn("apple-touch-icon", rels)
+        icon_hrefs = [
+            attrs["href"] for attrs in tags_named("link") if attrs.get("rel") == "icon"
         ]
-        self.assertTrue(all(path.is_file() for path in required))
+        self.assertIn("assets/favicon.svg", icon_hrefs)
+        self.assertTrue(any(href.endswith(".png") for href in icon_hrefs))
 
-    def test_document_language_is_english(self) -> None:
-        self.assertRegex(self.html, r'<html[^>]+lang="en"')
+    def test_theme_colour_matches_the_page_background(self) -> None:
+        theme = (meta_content(name="theme-color") or "").lower()
+        background = re.search(r"--bg:\s*(#[0-9a-f]{6})", CSS)
+        self.assertIsNotNone(background)
+        self.assertEqual(theme, background.group(1).lower())
 
-    def test_page_has_exactly_one_h1(self) -> None:
-        self.assertEqual(self.parser.tags.count("h1"), 1)
 
-    def test_page_uses_semantic_landmarks(self) -> None:
-        self.assertTrue({"header", "nav", "main", "footer"}.issubset(self.parser.tags))
+class TestAssets(unittest.TestCase):
+    def local_refs(self) -> list[str]:
+        refs = []
+        for tag, attrs in TAGS:
+            for key in ("href", "src"):
+                value = attrs.get(key)
+                if not value or value.startswith(("#", "http", "mailto:", "data:")):
+                    continue
+                refs.append(value)
+        return refs
 
-    def test_primary_sections_are_linkable(self) -> None:
-        ids = {
-            attrs.get("id")
-            for _, attrs in self.parser.attributes
-            if attrs.get("id")
-        }
-        self.assertTrue({"technology", "stack", "testnet", "developers"}.issubset(ids))
+    def test_every_local_reference_exists(self) -> None:
+        for ref in self.local_refs():
+            with self.subTest(ref=ref):
+                self.assertTrue((SITE / ref).exists(), f"missing file: {ref}")
 
-    def test_homepage_states_the_product_positioning(self) -> None:
-        required_copy = (
-            "Poker without a dealer",
-            "engineering testnet",
-            "untrusted relay",
-            "deterministic",
-        )
-        self.assertTrue(all(copy.lower() in self.page_text.lower() for copy in required_copy))
-
-    def test_homepage_names_verified_project_surfaces(self) -> None:
-        required_terms = (
-            "C++20",
-            "Cosmos SDK",
-            "Texas Hold’em",
-            "Zha Jin Hua",
-            "WebAssembly",
-            "Explorer",
-        )
-        self.assertTrue(all(term in self.page_text for term in required_terms))
-
-    def test_metadata_is_complete(self) -> None:
-        required_metadata = (
-            'name="description"',
-            'property="og:title"',
-            'property="og:description"',
-            'name="theme-color"',
-        )
-        self.assertTrue(all(item in self.html for item in required_metadata))
-
-    def test_images_have_alt_text(self) -> None:
-        images = [attrs for tag, attrs in self.parser.attributes if tag == "img"]
-        self.assertTrue(all("alt" in image for image in images))
-
-    def test_local_references_resolve(self) -> None:
-        references: list[str] = []
-        for tag, attrs in self.parser.attributes:
-            if tag == "a" and attrs.get("href"):
-                references.append(attrs["href"])
-            if tag in {"img", "script"} and attrs.get("src"):
-                references.append(attrs["src"])
-            if tag == "link" and attrs.get("href"):
-                references.append(attrs["href"])
-        local_paths = [
-            SITE_ROOT / urlparse(reference).path
-            for reference in references
-            if not urlparse(reference).scheme
-            and not reference.startswith(("#", "mailto:", "tel:"))
+    def test_stylesheet_is_the_only_one(self) -> None:
+        sheets = [
+            attrs["href"]
+            for attrs in tags_named("link")
+            if attrs.get("rel") == "stylesheet" and not attrs["href"].startswith("http")
         ]
-        self.assertTrue(all(path.is_file() for path in local_paths))
+        self.assertEqual(sheets, ["styles.css"])
 
-    def test_external_new_tab_links_are_safe(self) -> None:
-        external_links = [
-            attrs
-            for tag, attrs in self.parser.attributes
-            if tag == "a"
-            and attrs.get("target") == "_blank"
-            and urlparse(attrs.get("href", "")).scheme in {"http", "https"}
-        ]
-        self.assertTrue(all("noopener" in link.get("rel", "") for link in external_links))
+    def test_screenshots_are_referenced_with_alt_text_and_dimensions(self) -> None:
+        images = tags_named("img")
+        self.assertTrue(images)
+        for attrs in images:
+            with self.subTest(src=attrs.get("src")):
+                self.assertIn("alt", attrs)
+                if "assets/screenshots/" in attrs.get("src", ""):
+                    # Decorative marks carry alt=""; screenshots must describe
+                    # what is on screen, and must not reflow the page as they load.
+                    self.assertGreater(len(attrs["alt"]), 40)
+                    self.assertIn("width", attrs)
+                    self.assertIn("height", attrs)
 
-    def test_mobile_navigation_exposes_state(self) -> None:
-        menu_buttons = [
-            attrs
-            for tag, attrs in self.parser.attributes
-            if tag == "button" and attrs.get("data-menu-toggle") == ""
+    def test_whitepaper_is_downloadable_from_the_page(self) -> None:
+        self.assertIn("assets/bitpoker-whitepaper.pdf", HTML)
+        self.assertTrue((SITE / "assets/bitpoker-whitepaper.pdf").exists())
+
+
+class TestLinks(unittest.TestCase):
+    def test_external_links_are_safe(self) -> None:
+        for attrs in tags_named("a"):
+            href = attrs.get("href", "")
+            if not href.startswith("http"):
+                continue
+            with self.subTest(href=href):
+                self.assertTrue(href.startswith("https://"), "external links must be https")
+                if attrs.get("target") == "_blank":
+                    rel = attrs.get("rel", "")
+                    self.assertIn("noopener", rel)
+                    self.assertIn("noreferrer", rel)
+
+    def test_release_downloads_point_at_a_release_asset(self) -> None:
+        release_links = [
+            attrs["href"]
+            for attrs in tags_named("a")
+            if "releases" in attrs.get("href", "")
         ]
-        self.assertTrue(
-            len(menu_buttons) == 1
-            and menu_buttons[0].get("aria-expanded") == "false"
-            and bool(menu_buttons[0].get("aria-controls"))
+        self.assertGreaterEqual(len(release_links), 2)
+        for href in release_links:
+            with self.subTest(href=href):
+                self.assertIn("/releases/", href)
+                self.assertTrue(href.endswith((".apk", ".zip")))
+
+
+class TestInstaller(unittest.TestCase):
+    def test_script_is_present_and_executable(self) -> None:
+        self.assertTrue(INSTALL.exists())
+        self.assertTrue(INSTALL.stat().st_mode & 0o111, "install.sh must be executable")
+        self.assertTrue(INSTALL.read_text(encoding="utf-8").startswith("#!/bin/sh"))
+
+    def test_script_parses(self) -> None:
+        result = subprocess.run(
+            ["sh", "-n", str(INSTALL)], capture_output=True, text=True, check=False
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_css_defines_brand_tokens(self) -> None:
-        required_tokens = ("--ink", "--gold", "--felt", "--surface", "--line")
-        self.assertTrue(all(token in self.css for token in required_tokens))
+    def test_page_commands_use_roles_the_script_accepts(self) -> None:
+        commands = re.findall(r"curl -fsSL \S+/install\.sh \| sh -s -- (\w+)", HTML)
+        self.assertEqual(sorted(commands), ["node", "relay"])
+        # The script dispatches on one case line; keep the page in step with it.
+        script = INSTALL.read_text(encoding="utf-8")
+        accepted = re.search(r"^\s*([\w|]+)\) ;;$", script, re.MULTILINE)
+        self.assertIsNotNone(accepted)
+        self.assertEqual(sorted(accepted.group(1).split("|")), sorted(set(commands)))
 
-    def test_css_contains_responsive_layout(self) -> None:
-        self.assertRegex(self.css, r"@media\s*\([^)]*max-width")
+    def test_script_refuses_unknown_roles(self) -> None:
+        result = subprocess.run(
+            ["sh", str(INSTALL), "definitely-not-a-role"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unknown role", result.stderr)
 
-    def test_css_respects_reduced_motion(self) -> None:
-        self.assertIn("prefers-reduced-motion: reduce", self.css)
 
-    def test_javascript_has_no_debug_logging(self) -> None:
-        self.assertIsNone(re.search(r"console\.(log|debug)\s*\(", self.script))
+class TestAccessibility(unittest.TestCase):
+    def test_skip_link_targets_main(self) -> None:
+        self.assertIn('class="skip-link" href="#main"', HTML)
+        self.assertIn('id="main"', HTML)
+
+    def test_landmarks(self) -> None:
+        for landmark in ("<header", "<main", "<footer", "<nav"):
+            with self.subTest(landmark=landmark):
+                self.assertIn(landmark, HTML)
+
+    def test_menu_button_is_wired_to_the_navigation(self) -> None:
+        buttons = [
+            attrs for attrs in tags_named("button") if "nav-toggle" in attrs.get("class", "")
+        ]
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(buttons[0].get("aria-expanded"), "false")
+        self.assertEqual(buttons[0].get("aria-controls"), "site-nav")
+        self.assertIn('id="site-nav"', HTML)
+
+    def test_copy_buttons_reference_existing_command_elements(self) -> None:
+        targets = re.findall(r'data-copy-target="([^"]+)"', HTML)
+        self.assertTrue(targets)
+        for target in targets:
+            with self.subTest(target=target):
+                self.assertIn(f'id="{target}"', HTML)
+
+    def test_reduced_motion_is_respected(self) -> None:
+        self.assertIn("prefers-reduced-motion: reduce", CSS)
+
+    def test_layout_is_responsive(self) -> None:
+        self.assertIsNotNone(meta_content(name="viewport"))
+        self.assertGreaterEqual(CSS.count("@media"), 2)
 
 
 if __name__ == "__main__":
