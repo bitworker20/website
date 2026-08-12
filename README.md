@@ -62,8 +62,10 @@ It keeps the site **out of sight**, not out of reach:
   address is public.** Rotate the passphrase at deploy time, or keep the repo
   private.
 - A host with directory listing enabled defeats it completely. Check yours.
-- `crypto.subtle` requires a secure context — https, or `localhost` in testing.
-  Over plain http on a LAN address the gate cannot open at all.
+- The derivation uses WebCrypto where it exists and a bundled PBKDF2 (~0.7 s,
+  sliced across timeouts so the page stays responsive) where it does not, so the
+  gate also opens over plain http and `file://`. Convenient for testing, but it
+  means an insecure origin is not a barrier to anyone either.
 - Anyone who gets in can share the URL, and it keeps working until rotated.
 
 For actual access control, put the site behind HTTP basic auth or an identity
@@ -93,8 +95,9 @@ delete `gate.js`, `tools/gate.py` and `robots.txt`, and restore the page's
 python3 -m http.server 8080     # from this directory
 ```
 
-Then open <http://127.0.0.1:8080> — `localhost` counts as a secure context, so
-the gate works there. Opening the files over `file://` will not open the gate.
+Then open <http://127.0.0.1:8080>. The gate also works over a LAN address or by
+opening `index.html` from disk — `crypto.subtle` is missing outside a secure
+context, so it falls back to its own PBKDF2, which takes about a second.
 
 ## Run checks
 
@@ -104,15 +107,15 @@ From the monorepo root:
 python3 -m unittest discover -s website/tests -v
 ```
 
-32 tests: page structure and required sections, link-preview metadata, icons,
+33 tests: page structure and required sections, link-preview metadata, icons,
 every local asset existing on disk, external-link safety, the install commands
 on the page matching the roles `install.sh` accepts, the installer parsing and
 rejecting unknown roles, accessibility affordances (skip link, landmarks, menu
 semantics, screenshot alt text, reduced motion) — and, for the gate: that the
 coming-soon page leaks neither the address nor the content, that no other file
 in the repository names the target, that both pages are `noindex`, that the
-derivation is deterministic and salt-dependent, and that a wrong passphrase is
-rejected.
+derivation is deterministic and salt-dependent, that the gate still opens where
+`crypto.subtle` does not exist, and that a wrong passphrase is rejected.
 
 The suite finds the real page the way the gate does, by reading `gate.js`, so
 rotating the passphrase does not break it.
@@ -179,7 +182,8 @@ it should be readable without leaving the page.
 ## Deploy
 
 Serve this directory from any static host, keeping the relative paths intact.
-No build step. Serve it over https — the gate needs a secure context.
+No build step. Serve it over https — not because the gate needs it (it has a
+fallback) but because everything else does.
 
 ## Brand
 

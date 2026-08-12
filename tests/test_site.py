@@ -300,6 +300,16 @@ class TestGate(unittest.TestCase):
         self.assertEqual((len(verifier), len(token)), (32, 16))
         self.assertNotIn(token, verifier)
 
+    def test_gate_opens_without_webcrypto(self) -> None:
+        # crypto.subtle is absent outside a secure context — over plain http on
+        # a LAN address, or from disk — which is exactly how the gate gets
+        # tested first. Without the fallback it would silently never open.
+        source = GATE_JS.read_text(encoding="utf-8")
+        self.assertIn("if (!subtle) {", source)
+        self.assertIn("function sha256(", source)
+        self.assertIn("function pbkdf2(", source)
+        self.assertNotIn("if (!subtle || !CONFIG.verifier)", source)
+
     def test_wrong_passphrase_is_rejected_by_the_tool(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SITE / "tools/gate.py"), "check", "not-the-passphrase"],
