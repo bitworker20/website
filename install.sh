@@ -207,7 +207,7 @@ if [ "$ROLE" = node ]; then
     ${BIN} tx staking create-validator --home ${HOME_DIR} --chain-id ${CHAIN_ID} …"
 else
   ENDPOINT="${BITPOKER_ENDPOINT:-}"
-  LISTEN="${BITPOKER_LISTEN:-:8443}"
+  LISTEN="${BITPOKER_LISTEN:-127.0.0.1:18080}"
   CHAIN_GRPC="${BITPOKER_CHAIN_GRPC:-127.0.0.1:9090}"
   CHAIN_NODE="${BITPOKER_CHAIN_NODE:-tcp://127.0.0.1:26657}"
 
@@ -216,19 +216,30 @@ else
 
   # The relay identity is an ed25519 key the daemon generates on first use; the
   # on-chain relay id is derived from it, so this file is the thing to back up.
+  #
+  # It binds loopback and speaks plain HTTP: TLS belongs to the reverse proxy in
+  # front, which is the only thing that can reach it. A self-signed certificate
+  # served by the daemon itself cannot be used by browser wallets at all.
   EXEC="${BIN_DIR}/${BIN} serve --home ${HOME_DIR} --listen ${LISTEN} \
 --chain-id ${CHAIN_ID} --chain-grpc ${CHAIN_GRPC} --chain-node ${CHAIN_NODE} \
---fees 2000${DENOM} --tls-mode auto"
+--fees 2000${DENOM}"
   [ -n "$ENDPOINT" ] && EXEC="$EXEC --endpoint ${ENDPOINT} --auto-register"
 
-  AFTER_TEXT="poker-relayd is serving on ${LISTEN}.
+  AFTER_TEXT="poker-relayd is serving on ${LISTEN} (loopback, plain HTTP).
     journalctl -fu ${SERVICE}
+    curl -sS http://${LISTEN}/health
 
-  It needs a reachable pokerchain node (--chain-grpc ${CHAIN_GRPC}) and, to be
-  assigned sessions, a registration on chain with a bond. Set BITPOKER_ENDPOINT
-  to your public wss:// URL and re-run to register automatically, or register by
-  hand:
-    ${BIN} register --home ${HOME_DIR} --endpoint wss://relay.example/relay/v1 …
+  Two things are still missing before anyone can play through it:
+
+    1. TLS. Put nginx in front, terminate wss:// there, and proxy to
+       ${LISTEN}. The full configuration — WebSocket upgrade, timeouts,
+       wildcard certificate, front pool — is in docs/relay/deployment.md.
+    2. A registration on chain, with a bond:
+         ${BIN} register --home ${HOME_DIR}
+       or set BITPOKER_ENDPOINT to your public wss:// URL and re-run this
+       script to have the daemon register itself on start.
+
+  It also needs a reachable pokerchain node (--chain-grpc ${CHAIN_GRPC}).
 
   Back up ${HOME_DIR}/config/relay_node_key.json — your relay identity, and the
   rewards owed to it, derive from that key."

@@ -394,12 +394,12 @@
 
             <article class="card install">
               <h3>Relay</h3>
-              <p>Forwards session traffic and earns rake from the pots it carried, on bilateral receipts.</p>
+              <p>Forwards session traffic and earns rake from the pots it carried, on bilateral receipts. Put nginx in front for TLS.</p>
               <div class="cmd">
                 <code id="cmd-relay">curl -fsSL https://raw.githubusercontent.com/bitworker20/website/main/install.sh | sh -s -- relay</code>
                 <button class="copy" type="button" data-copy-target="cmd-relay">Copy</button>
               </div>
-              <p class="meta">systemd unit <code>poker-relayd</code> · WSS 8443 · registers itself on chain</p>
+              <p class="meta">systemd unit <code>poker-relayd</code> · loopback behind nginx · registers itself on chain</p>
             </article>
           </div>
 
