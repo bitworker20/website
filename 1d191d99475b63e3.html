@@ -61,7 +61,7 @@
           <a href="#engineering">Engineering</a>
           <a href="#clients">Clients</a>
           <a href="#downloads">Downloads</a>
-          <a href="#node">Run a node</a>
+          <!-- hidden with the installer section: <a href="#node">Run a node</a> -->
           <a class="nav-cta" href="assets/bitpoker-whitepaper.pdf">Whitepaper</a>
         </nav>
       </div>
@@ -84,7 +84,7 @@
             <div class="cta-row">
               <a class="btn btn-primary" href="assets/bitpoker-whitepaper.pdf">Read the whitepaper</a>
               <a class="btn" href="#downloads">Get a client</a>
-              <a class="btn btn-ghost" href="#node">Run a node</a>
+              <!-- hidden with the installer section: <a class="btn btn-ghost" href="#node">Run a node</a> -->
             </div>
             <ul class="hero-facts">
               <li><b>FourQ</b><span>Barnett–Smart deck, Neff shuffle proof</span></li>
@@ -345,14 +345,21 @@
               <h3>Android</h3>
               <p>Qt/QML build, arm64. Sideload the APK — it is not in any store.</p>
               <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/bitpoker-android-arm64.apk">Download APK</a>
-              <p class="meta">arm64 · signed release build</p>
+              <p class="meta">arm64 · debug-signed · sideload only</p>
             </article>
 
             <article class="card download">
-              <h3>Browser extension</h3>
-              <p>Keplr-based wallet with the WASM game core. Unpack and load it as an unpacked extension.</p>
-              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/bitpoker-extension.zip">Download extension</a>
-              <p class="meta">Chromium · manifest v3 · unpacked</p>
+              <h3>Linux desktop</h3>
+              <p>The Qt client as a single AppImage — Qt and everything else is inside it. Make it executable and run it.</p>
+              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/BitPoker-x86_64.AppImage">Download AppImage</a>
+              <p class="meta">x86_64 · glibc 2.38+ (Ubuntu 23.10+, Debian 13, Fedora 39+)</p>
+            </article>
+
+            <article class="card download">
+              <h3>Servers and CLI</h3>
+              <p>The node, the relay, the terminal client and the intent dispatcher, as plain binaries for a Linux host.</p>
+              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/bitpoker-bin-ubuntu-x64.tar.gz">Download tar.gz</a>
+              <p class="meta">x86_64 · pokerchaind, poker-relayd, bitpoker-tui, bitpoker-dispatcher</p>
             </article>
 
             <article class="card download">
@@ -365,12 +372,22 @@
 
           <p class="note">
             Testnet software with test-only chips. Read §12 of the whitepaper before
-            trusting it with anything you would miss.
+            trusting it with anything you would miss. Every download is listed with its
+            checksum in
+            <a href="https://github.com/bitworker20/bitpoker/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a>
+            — verify with <code>sha256sum -c</code>.
           </p>
         </div>
       </section>
 
-      <!-- ────────────────────────────  node  ────────────────────────────── -->
+      <!-- ────────────────────────────  node  ──────────────────────────────
+      HIDDEN until the one-line installer is worth offering: install.sh pulls
+      per-role tarballs (bitpoker-node-linux-amd64.tar.gz and friends) that the
+      release does not publish — it ships one combined archive — and it wants a
+      network manifest that does not exist yet. Restoring it means uncommenting
+      this section, the "Run a node" links in the header nav, the hero and the
+      footer, and making install.sh and the release assets agree.
+
       <section class="section" id="node">
         <div class="wrap">
           <p class="eyebrow">Operators</p>
@@ -410,6 +427,7 @@
           </p>
         </div>
       </section>
+      ───────────────────────────────────────────────────────────────────── -->
     </main>
 
     <footer class="site-footer">
@@ -425,7 +443,7 @@
         <nav class="footer-links" aria-label="Footer">
           <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
           <a href="#downloads">Downloads</a>
-          <a href="#node">Run a node</a>
+          <!-- hidden with the installer section: <a href="#node">Run a node</a> -->
           <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
         </nav>
       </div>

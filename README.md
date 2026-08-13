@@ -107,10 +107,12 @@ From the monorepo root:
 python3 -m unittest discover -s website/tests -v
 ```
 
-33 tests: page structure and required sections, link-preview metadata, icons,
-every local asset existing on disk, external-link safety, the install commands
-on the page matching the roles `install.sh` accepts, the installer parsing and
-rejecting unknown roles, accessibility affordances (skip link, landmarks, menu
+35 tests: page structure and required sections, link-preview metadata, icons,
+every local asset existing on disk, external-link safety, the three release
+downloads pointing at asset names that survive a new release, the installer
+section staying hidden (no visible install command, no dead `#node` link) and
+any command it does show using a role `install.sh` accepts, the installer
+parsing and rejecting unknown roles, accessibility affordances (skip link, landmarks, menu
 semantics, screenshot alt text, reduced motion) — and, for the gate: that the
 coming-soon page leaks neither the address nor the content, that no other file
 in the repository names the target, that both pages are `noindex`, that the
@@ -172,12 +174,40 @@ Four things are written against hosts or events that do not exist yet:
 |---|---|---|
 | The gate | `gate.js` | rotate the passphrase at deploy time, or remove the gate entirely when the site goes public |
 | Social-card URL | the site page's `og:image` / `twitter:image` | relative `assets/og-image.png`; some scrapers will not resolve a relative URL — make it absolute once there is a domain |
-| Release assets | the site page's download links, `install.sh` `BITPOKER_REPO` | `github.com/bitworker20/bitpoker/releases/latest/download/…` with assets `bitpoker-android-arm64.apk`, `bitpoker-extension.zip`, `bitpoker-{node,relay}-linux-{amd64,arm64}.tar.gz` and `checksums.txt` — confirm the repo name and publish those asset names |
+| `install.sh` assets | `install.sh` `BITPOKER_REPO` | it fetches `bitpoker-{node,relay}-linux-{amd64,arm64}.tar.gz`, which the release does not publish — it ships one combined `bitpoker-bin-ubuntu-x64.tar.gz`. Reconcile the two before the installer section goes back on the page |
 | Network manifest | `install.sh` `MANIFEST_URL` | `networks/pokerchain-testnet-1.env` in this repository, not yet created |
 
-The APK and the extension zip are **not** committed here; the download buttons
-point at GitHub Releases. Only the whitepaper PDF ships with the site, because
-it should be readable without leaving the page.
+## Downloads
+
+The three client packages are **not** committed here; the buttons point at
+`github.com/bitworker20/bitpoker/releases/latest/download/`:
+
+| Button | Asset |
+|---|---|
+| Download APK | `bitpoker-android-arm64.apk` — Qt/QML mobile wallet, debug-signed |
+| Download AppImage | `BitPoker-x86_64.AppImage` — Qt desktop client, self-contained, glibc 2.38+ |
+| Download tar.gz | `bitpoker-bin-ubuntu-x64.tar.gz` — pokerchaind, poker-relayd, TUI, dispatcher |
+| SHA256SUMS.txt | checksums for all of the above |
+
+`latest/download/<name>` only resolves names that stay put between releases,
+which is why the AppImage is published twice: once versioned
+(`BitPoker-0.2.0-x86_64.AppImage`) and once under the stable alias the page
+links to. `tools/release/publish.sh` in the monorepo does that.
+
+Only the whitepaper PDF ships with the site, because it should be readable
+without leaving the page.
+
+## The one-line installer is hidden
+
+The `#node` section — "Run it on a Linux server", with the two
+`curl … | sh -s -- node|relay` commands — is **commented out**, along with the
+"Run a node" links in the header, hero and footer. `install.sh` still lives
+here, it is simply not offered: it downloads per-role tarballs the release does
+not publish, and wants a network manifest that does not exist yet.
+
+Bringing it back is uncommenting those four places — the test suite checks the
+pair, so a restored section with a dead `#node` link, or a command whose role
+`install.sh` does not accept, fails.
 
 ## Deploy
 

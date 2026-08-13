@@ -106,7 +106,9 @@ class TestDocument(unittest.TestCase):
                 self.assertIn(href[1:], ids)
 
     def test_required_sections_present(self) -> None:
-        for section in ("protocol", "engineering", "clients", "downloads", "node"):
+        # "node" is deliberately absent: the one-line installer section is
+        # commented out until install.sh and the published release assets agree.
+        for section in ("protocol", "engineering", "clients", "downloads"):
             with self.subTest(section=section):
                 self.assertIn(f'id="{section}"', HTML)
 
@@ -199,11 +201,26 @@ class TestLinks(unittest.TestCase):
             for attrs in tags_named("a")
             if "releases" in attrs.get("href", "")
         ]
-        self.assertGreaterEqual(len(release_links), 2)
+        self.assertGreaterEqual(len(release_links), 3)
         for href in release_links:
             with self.subTest(href=href):
                 self.assertIn("/releases/", href)
-                self.assertTrue(href.endswith((".apk", ".zip")))
+                self.assertTrue(href.endswith((".apk", ".AppImage", ".tar.gz", ".txt")))
+
+    def test_the_three_client_packages_are_offered(self) -> None:
+        # An AppImage, an APK and the server/CLI tarball — the asset names must
+        # be the unversioned ones, because /releases/latest/download/<name>
+        # only resolves a name that does not move between releases.
+        hrefs = " ".join(
+            attrs.get("href", "") for attrs in tags_named("a") if "releases" in attrs.get("href", "")
+        )
+        for asset in (
+            "bitpoker-android-arm64.apk",
+            "BitPoker-x86_64.AppImage",
+            "bitpoker-bin-ubuntu-x64.tar.gz",
+        ):
+            with self.subTest(asset=asset):
+                self.assertIn(f"/releases/latest/download/{asset}", hrefs)
 
 
 class TestInstaller(unittest.TestCase):
@@ -219,13 +236,22 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_page_commands_use_roles_the_script_accepts(self) -> None:
-        commands = re.findall(r"curl -fsSL \S+/install\.sh \| sh -s -- (\w+)", HTML)
-        self.assertEqual(sorted(commands), ["node", "relay"])
-        # The script dispatches on one case line; keep the page in step with it.
+        # Commented-out markup is not on the page, so the install section being
+        # hidden means no commands to check — but the moment it comes back, its
+        # roles have to be ones the script dispatches on.
+        visible = re.sub(r"<!--.*?-->", "", HTML, flags=re.DOTALL)
+        commands = re.findall(r"curl -fsSL \S+/install\.sh \| sh -s -- (\w+)", visible)
         script = INSTALL.read_text(encoding="utf-8")
         accepted = re.search(r"^\s*([\w|]+)\) ;;$", script, re.MULTILINE)
         self.assertIsNotNone(accepted)
-        self.assertEqual(sorted(accepted.group(1).split("|")), sorted(set(commands)))
+        self.assertLessEqual(set(commands), set(accepted.group(1).split("|")))
+
+    def test_the_installer_section_is_hidden(self) -> None:
+        # Guards the pair: while the page offers no installer, nothing should
+        # link to #node either (a dead in-page anchor scrolls nowhere).
+        visible = re.sub(r"<!--.*?-->", "", HTML, flags=re.DOTALL)
+        self.assertNotIn("install.sh", visible)
+        self.assertNotIn('href="#node"', visible)
 
     def test_script_refuses_unknown_roles(self) -> None:
         result = subprocess.run(
