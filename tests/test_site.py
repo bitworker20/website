@@ -205,17 +205,19 @@ class TestLinks(unittest.TestCase):
         for href in release_links:
             with self.subTest(href=href):
                 self.assertIn("/releases/", href)
-                self.assertTrue(href.endswith((".apk", ".AppImage", ".tar.gz", ".txt")))
+                self.assertTrue(href.endswith((".apk", ".dmg", ".AppImage", ".tar.gz", ".txt")))
 
-    def test_the_three_client_packages_are_offered(self) -> None:
-        # An AppImage, an APK and the server/CLI tarball — the asset names must
-        # be the unversioned ones, because /releases/latest/download/<name>
-        # only resolves a name that does not move between releases.
+    def test_the_client_packages_are_offered(self) -> None:
+        # An APK, a DMG, an AppImage and the server/CLI tarball — the asset
+        # names must be the unversioned ones, because
+        # /releases/latest/download/<name> only resolves a name that does not
+        # move between releases.
         hrefs = " ".join(
             attrs.get("href", "") for attrs in tags_named("a") if "releases" in attrs.get("href", "")
         )
         for asset in (
             "bitpoker-android-arm64.apk",
+            "BitPoker-arm64.dmg",
             "BitPoker-x86_64.AppImage",
             "bitpoker-bin-ubuntu-x64.tar.gz",
         ):

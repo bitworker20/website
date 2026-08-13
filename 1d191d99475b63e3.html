@@ -349,6 +349,13 @@
             </article>
 
             <article class="card download">
+              <h3>macOS desktop</h3>
+              <p>The Qt client as a signed app bundle in a disk image — drag it to Applications. Not notarized, so the first launch is right-click → Open.</p>
+              <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/BitPoker-arm64.dmg">Download DMG</a>
+              <p class="meta">Apple Silicon · macOS 12+ · ad-hoc signed</p>
+            </article>
+
+            <article class="card download">
               <h3>Linux desktop</h3>
               <p>The Qt client as a single AppImage — Qt and everything else is inside it. Make it executable and run it.</p>
               <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest/download/BitPoker-x86_64.AppImage">Download AppImage</a>
@@ -375,7 +382,7 @@
             trusting it with anything you would miss. Every download is listed with its
             checksum in
             <a href="https://github.com/bitworker20/bitpoker/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a>
-            — verify with <code>sha256sum -c</code>.
+            — verify with <code>sha256sum -c</code>, or <code>shasum -a 256 -c</code> on macOS.
           </p>
         </div>
       </section>

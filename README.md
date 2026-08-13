@@ -179,20 +179,28 @@ Four things are written against hosts or events that do not exist yet:
 
 ## Downloads
 
-The three client packages are **not** committed here; the buttons point at
+The client packages are **not** committed here; the buttons point at
 `github.com/bitworker20/bitpoker/releases/latest/download/`:
 
 | Button | Asset |
 |---|---|
 | Download APK | `bitpoker-android-arm64.apk` — Qt/QML mobile wallet, debug-signed |
+| Download DMG | `BitPoker-arm64.dmg` — Qt desktop client, Apple Silicon, macOS 12+ |
 | Download AppImage | `BitPoker-x86_64.AppImage` — Qt desktop client, self-contained, glibc 2.38+ |
 | Download tar.gz | `bitpoker-bin-ubuntu-x64.tar.gz` — pokerchaind, poker-relayd, TUI, dispatcher |
 | SHA256SUMS.txt | checksums for all of the above |
 
 `latest/download/<name>` only resolves names that stay put between releases,
-which is why the AppImage is published twice: once versioned
-(`BitPoker-0.2.0-x86_64.AppImage`) and once under the stable alias the page
-links to. `tools/release/publish.sh` in the monorepo does that.
+which is why the AppImage and the DMG are each published twice: once versioned
+(`BitPoker-0.2.0-x86_64.AppImage`, `BitPoker-0.2.0-arm64.dmg`) and once under
+the stable alias the page links to. `tools/release/publish.sh` in the monorepo
+does that.
+
+The DMG is ad-hoc signed, not notarized: Gatekeeper blocks a plain
+double-click on a machine that did not build it, and the first launch has to be
+right-click → Open. The page says so on the button. Fixing it properly needs an
+Apple Developer ID (`CODESIGN_IDENTITY` in `tools/macos/build_dmg.sh`) and a
+notarization pass.
 
 Only the whitepaper PDF ships with the site, because it should be readable
 without leaving the page.
