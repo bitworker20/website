@@ -6,10 +6,13 @@ metadata a link preview needs must be present, the install commands on the page
 must be ones install.sh actually accepts, and the accessibility affordances
 (skip link, menu semantics, image alt text, reduced motion) must survive edits.
 
-The real page is not index.html — index.html is the coming-soon gate, and the
-page it opens is named after a token derived from the passphrase. These tests
-find it the way the gate does, by reading gate.js, and additionally check that
-nothing in the gate leaks the way in.
+The real page is not index.html — index.html is the invitation gate, and the
+page it opens is named after a token derived from the site's passphrase. These
+tests find it the way the gate does, by reading gate.js, and additionally check
+that nothing in the gate leaks the way in, that both of its doors are still
+wired (an invitation code to poker-faucetd, the passphrase to the derivation in
+the page), and that the faucet the gate leads to is offered only when there is
+one to talk to.
 
 Run from the repository root:
 
@@ -36,6 +39,8 @@ GATE_CONFIG = json.loads(
 INDEX = SITE / GATE_CONFIG["target"]
 HTML = INDEX.read_text(encoding="utf-8")
 CSS = (SITE / "styles.css").read_text(encoding="utf-8")
+SCRIPT = (SITE / "script.js").read_text(encoding="utf-8")
+CONFIG_JS = (SITE / "config.js").read_text(encoding="utf-8")
 INSTALL = SITE / "install.sh"
 
 
@@ -108,7 +113,7 @@ class TestDocument(unittest.TestCase):
     def test_required_sections_present(self) -> None:
         # "node" is deliberately absent: the one-line installer section is
         # commented out until install.sh and the published release assets agree.
-        for section in ("protocol", "engineering", "clients", "downloads"):
+        for section in ("protocol", "engineering", "clients", "testnet", "downloads"):
             with self.subTest(section=section):
                 self.assertIn(f'id="{section}"', HTML)
 
@@ -266,10 +271,78 @@ class TestInstaller(unittest.TestCase):
         self.assertIn("unknown role", result.stderr)
 
 
+class TestTestnet(unittest.TestCase):
+    """The section that points at the running network, and the faucet form."""
+
+    def test_the_web_client_and_the_explorer_are_offered(self) -> None:
+        hrefs = [attrs.get("href", "") for attrs in tags_named("a")]
+        for host in ("https://app.bitpk.top", "https://explorer.bitpk.top"):
+            with self.subTest(host=host):
+                self.assertIn(host, hrefs, f"{host} must be linked from the page")
+
+    def test_both_pages_read_the_same_deployment_config(self) -> None:
+        for name, source in (("gate", GATE_HTML), ("site", HTML)):
+            with self.subTest(page=name):
+                self.assertIn('src="config.js"', source)
+        self.assertTrue((SITE / "config.js").exists())
+        for key in ("api", "explorer", "webapp"):
+            with self.subTest(key=key):
+                self.assertIn(f"{key}:", CONFIG_JS)
+
+    def test_the_faucet_form_is_hidden_until_a_faucet_answers(self) -> None:
+        # A form that cannot submit anywhere is worse than no form: the panel
+        # ships hidden and script.js reveals it only after /v1/info answers.
+        panel = re.search(r'<div class="faucet"[^>]*>', HTML)
+        self.assertIsNotNone(panel)
+        self.assertIn("hidden", panel.group(0))
+        self.assertIn("data-faucet", panel.group(0))
+        self.assertIn("panel.hidden = false", SCRIPT)
+        self.assertIn("[hidden] { display: none !important; }", CSS)
+
+    def test_the_faucet_form_asks_for_a_code_and_an_address(self) -> None:
+        for hook in ("data-faucet-code", "data-faucet-address", "data-faucet-submit"):
+            with self.subTest(hook=hook):
+                self.assertIn(hook, HTML)
+                self.assertIn(hook, SCRIPT)
+        # Both inputs must be labelled, not placeholder-only.
+        self.assertEqual(HTML.count('<span class="label">'), 2)
+
+    def test_the_faucet_talks_to_the_configured_api_only(self) -> None:
+        self.assertIn("/v1/faucet/claim", SCRIPT)
+        self.assertIn("/v1/info", SCRIPT)
+        # No hard-coded host: the endpoint comes from config.js.
+        self.assertNotIn("https://api.", SCRIPT)
+
+    def test_locking_the_browser_also_forgets_the_invitation(self) -> None:
+        # Otherwise "lock this browser" leaves a working faucet ticket behind
+        # on a shared machine.
+        lock = SCRIPT[SCRIPT.index("data-lock") : SCRIPT.index("Clipboard access")]
+        self.assertIn('removeItem("bitpoker.gate")', lock)
+        self.assertIn('removeItem("bitpoker.invite")', lock)
+
+
 class TestGate(unittest.TestCase):
-    def test_index_is_the_coming_soon_page(self) -> None:
-        self.assertIn("Coming soon", GATE_HTML)
+    def test_index_is_the_invitation_gate(self) -> None:
+        self.assertIn("Invitation only", GATE_HTML)
         self.assertIn("gate.js", GATE_HTML)
+        # One slot, and a label for it — the code is typed, not guessed at.
+        self.assertIn("data-knock-field", GATE_HTML)
+        self.assertIn('for="code"', GATE_HTML)
+
+    def test_the_gate_has_both_doors(self) -> None:
+        source = GATE_JS.read_text(encoding="utf-8")
+        # The invitation code goes to the daemon, which can revoke it...
+        self.assertIn("/v1/invite/redeem", source)
+        self.assertIn("window.BITPOKER", source)
+        # ...and the passphrase is still checked here, with no network at all,
+        # so the site stays reachable when the daemon is not.
+        self.assertIn("attemptPassphrase", source)
+        self.assertIn("CONFIG.verifier", source)
+
+    def test_an_unreachable_daemon_is_not_reported_as_a_wrong_code(self) -> None:
+        source = GATE_JS.read_text(encoding="utf-8")
+        self.assertIn("offline: true", source)
+        self.assertIn("Could not reach the door", source)
 
     def test_index_leaks_neither_the_address_nor_the_content(self) -> None:
         token = GATE_CONFIG["target"].split(".")[0]

@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BitPoker</title>
-    <meta name="description" content="Coming soon.">
+    <title>BitPoker — Invitation only</title>
+    <meta name="description" content="By invitation.">
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#0b0e13">
     <meta property="og:type" content="website">
     <meta property="og:title" content="BitPoker">
-    <meta property="og:description" content="Coming soon.">
+    <meta property="og:description" content="By invitation.">
     <meta property="og:image" content="assets/og-card-soon.png">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
@@ -18,89 +18,272 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600&amp;family=Barlow:wght@400&amp;display=swap"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&amp;family=Barlow:wght@400;500&amp;display=swap"
       rel="stylesheet"
     >
     <style>
-      :root { color-scheme: dark; }
+      /* Self-contained on purpose: the door should not depend on the
+         stylesheet of the room behind it. */
+      :root {
+        color-scheme: dark;
+        --ink: #ece7dc;
+        --dim: #6d7d90;
+        --gold: #e3ac3e;
+        --gold-deep: #8a6a24;
+        --felt: #0b0e13;
+        --slot: #131922;
+        --edge: #212a36;
+        --bad: #d2603f;
+      }
 
       * { box-sizing: border-box; }
 
       body {
         margin: 0;
         min-height: 100vh;
+        min-height: 100svh;
         display: grid;
         place-items: center;
-        padding: 32px;
+        padding: 40px 24px;
         background:
-          radial-gradient(80% 60% at 50% 0%, rgba(227, 172, 62, .09), transparent 62%),
-          #0b0e13;
-        color: #ece7dc;
+          radial-gradient(120% 80% at 50% -10%, rgba(227, 172, 62, .10), transparent 60%),
+          radial-gradient(90% 70% at 50% 115%, rgba(30, 74, 58, .28), transparent 65%),
+          var(--felt);
+        color: var(--ink);
         font-family: "Barlow", "Segoe UI", system-ui, sans-serif;
         text-align: center;
+        overflow: hidden;
       }
 
-      .mark {
-        width: 88px;
-        height: 88px;
-        display: block;
-        margin: 0 auto 30px;
-        cursor: default;
-        -webkit-tap-highlight-color: transparent;
-        user-select: none;
+      main { width: min(100%, 380px); }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 3.5px;
+        text-transform: uppercase;
+        color: var(--gold);
       }
 
       h1 {
         margin: 0;
         font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
         font-weight: 600;
-        font-size: clamp(34px, 7vw, 54px);
-        letter-spacing: 4px;
+        font-size: clamp(30px, 8vw, 44px);
+        letter-spacing: 3px;
         text-transform: uppercase;
+        line-height: 1;
       }
 
-      p {
-        margin: 18px auto 0;
-        max-width: 34ch;
-        color: #6d7d90;
-        font-size: 16px;
+      .lede {
+        margin: 14px auto 0;
+        max-width: 30ch;
+        color: var(--dim);
+        font-size: 15px;
         line-height: 1.6;
       }
 
-      .rule {
-        width: 64px;
-        height: 1px;
-        margin: 30px auto 0;
-        background: linear-gradient(90deg, transparent, #8a6a24, transparent);
+      /* ── the card ─────────────────────────────────────────────────────
+         The door is a card: face down until a code turns it over. Three of
+         them, stacked and fanned a little, so the top one has somewhere to
+         have come from. */
+      .deck {
+        position: relative;
+        width: 150px;
+        height: 212px;
+        margin: 34px auto 30px;
+        perspective: 900px;
       }
 
-      input {
-        margin-top: 26px;
-        width: 232px;
-        padding: 11px 14px;
-        background: #131922;
-        border: 1px solid #212a36;
-        border-radius: 10px;
-        color: #ece7dc;
-        font: 400 16px/1 "Barlow", sans-serif;
-        text-align: center;
+      .deck-under {
+        position: absolute;
+        inset: 0;
+        border-radius: 11px;
+        background: linear-gradient(160deg, #16202c, #0e141c);
+        border: 1px solid #232e3c;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, .45);
+        animation: deal .7s cubic-bezier(.2, .8, .3, 1) backwards;
       }
-      input:focus { outline: 2px solid #8a6a24; outline-offset: 2px; }
+      .deck-under:nth-child(1) { transform: translate(-14px, 6px) rotate(-7deg); animation-delay: .05s; }
+      .deck-under:nth-child(2) { transform: translate(8px, 3px) rotate(4deg); animation-delay: .15s; }
+
+      .card {
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+        transition: transform .55s cubic-bezier(.4, .1, .2, 1);
+        animation: deal .7s cubic-bezier(.2, .8, .3, 1) .25s backwards;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .flipped .card { transform: rotateY(180deg); }
+
+      .face {
+        position: absolute;
+        inset: 0;
+        border-radius: 11px;
+        backface-visibility: hidden;
+        display: grid;
+        place-items: center;
+        box-shadow: 0 22px 46px rgba(0, 0, 0, .5);
+      }
+
+      /* Back: the pattern side, drawn here rather than fetched. */
+      .face-back {
+        background:
+          repeating-linear-gradient(45deg, rgba(227, 172, 62, .07) 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(-45deg, rgba(227, 172, 62, .07) 0 6px, transparent 6px 12px),
+          linear-gradient(160deg, #1a2432, #10161f);
+        border: 1px solid var(--gold-deep);
+      }
+      .face-back::after {
+        content: "";
+        position: absolute;
+        inset: 7px;
+        border: 1px solid rgba(227, 172, 62, .22);
+        border-radius: 7px;
+      }
+      .face-back img { width: 52px; height: 52px; opacity: .9; }
+
+      /* Front: whatever the code turned out to be worth. */
+      .face-front {
+        transform: rotateY(180deg);
+        background: linear-gradient(170deg, #f6f2e8, #ded8c9);
+        border: 1px solid #cfc7b4;
+        color: #14181f;
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        font-weight: 600;
+        line-height: .95;
+      }
+      .pip { font-size: 40px; letter-spacing: 1px; }
+      .suit { font-size: 54px; margin-top: 2px; }
+      .win .suit, .win .pip { color: #14181f; }
+      .lose .pip, .lose .suit { color: #9c3324; }
+
+      .dealt .deck { animation: fan .5s ease forwards; }
+
+      /* ── the slot ─────────────────────────────────────────────────── */
+      form { display: block; }
+
+      .slot {
+        width: 100%;
+        padding: 13px 14px;
+        background: var(--slot);
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        color: var(--ink);
+        font: 500 17px/1 "Barlow", ui-monospace, monospace;
+        letter-spacing: 3px;
+        text-align: center;
+        text-transform: uppercase;
+      }
+      .slot::placeholder { color: #46566a; letter-spacing: 3px; }
+      .slot:focus { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+      .shake { animation: shake .4s ease; }
+
+      button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 12px 14px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--gold);
+        color: #1a1206;
+        font: 600 15px/1 "Barlow", sans-serif;
+        letter-spacing: .4px;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.06); }
+      button:disabled { opacity: .55; cursor: progress; }
+
+      .note {
+        min-height: 40px;
+        margin: 16px auto 0;
+        max-width: 32ch;
+        color: var(--dim);
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+      .note.bad { color: var(--bad); }
+      .note a { color: var(--dim); text-underline-offset: 3px; }
+      .note a:hover { color: var(--ink); }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px; height: 1px;
+        margin: -1px; padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      @keyframes deal {
+        from { opacity: 0; transform: translate(-40px, 70px) rotate(-24deg); }
+      }
+      @keyframes fan {
+        to { opacity: 0; transform: translateY(-16px) scale(1.06); }
+      }
+      @keyframes shake {
+        20% { transform: translateX(-7px); }
+        50% { transform: translateX(6px); }
+        80% { transform: translateX(-3px); }
+      }
 
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; animation: none !important; }
+        .flipped .card { transform: none; }
+        .flipped .face-back { display: none; }
+        .flipped .face-front { transform: none; }
       }
     </style>
+    <script src="config.js"></script>
     <script src="gate.js" defer></script>
   </head>
 
   <body>
     <main>
-      <img class="mark" src="assets/bitpoker-mark.svg" alt="BitPoker" width="88" height="88" data-knock>
-      <h1>Coming soon</h1>
-      <div class="rule"></div>
-      <p>Heads-up poker without a dealer. Not open yet.</p>
-      <input type="password" hidden data-knock-field aria-label="Passphrase" autocomplete="off" spellcheck="false">
+      <p class="eyebrow">BitPoker</p>
+      <h1>Invitation only</h1>
+      <p class="lede">Two players, one deck, nobody holding it. The table is small for now.</p>
+
+      <div class="deck" data-deck>
+        <div class="deck-under"></div>
+        <div class="deck-under"></div>
+        <div class="card" data-knock>
+          <div class="face face-back">
+            <img src="assets/bitpoker-mark.svg" alt="" width="52" height="52">
+          </div>
+          <div class="face face-front" data-face>
+            <span class="pip" data-pip>A</span>
+            <span class="suit" data-suit>&spades;</span>
+          </div>
+        </div>
+      </div>
+
+      <form data-form>
+        <label class="visually-hidden" for="code">Invitation code</label>
+        <input
+          class="slot"
+          id="code"
+          type="text"
+          data-knock-field
+          placeholder="XXXX-XXXX-XXXX"
+          autocomplete="off"
+          autocapitalize="characters"
+          autocorrect="off"
+          spellcheck="false"
+          inputmode="text"
+          maxlength="64"
+          enterkeyhint="go"
+        >
+        <button type="submit" data-submit>Take a seat</button>
+      </form>
+
+      <p class="note" data-note role="status" aria-live="polite">
+        Someone sent you a code. Deal it in.
+      </p>
     </main>
   </body>
 </html>

@@ -38,6 +38,7 @@
       rel="stylesheet"
     >
     <link rel="stylesheet" href="styles.css">
+    <script src="config.js"></script>
     <script src="script.js" defer></script>
   </head>
 
@@ -60,6 +61,7 @@
           <a href="#protocol">Protocol</a>
           <a href="#engineering">Engineering</a>
           <a href="#clients">Clients</a>
+          <a href="#testnet">Testnet</a>
           <a href="#downloads">Downloads</a>
           <!-- hidden with the installer section: <a href="#node">Run a node</a> -->
           <a class="nav-cta" href="assets/bitpoker-whitepaper.pdf">Whitepaper</a>
@@ -82,8 +84,9 @@
               signed messages, and every validator reaches the same verdict.
             </p>
             <div class="cta-row">
-              <a class="btn btn-primary" href="assets/bitpoker-whitepaper.pdf">Read the whitepaper</a>
-              <a class="btn" href="#downloads">Get a client</a>
+              <a class="btn btn-primary" href="#testnet">Play on the testnet</a>
+              <a class="btn" href="assets/bitpoker-whitepaper.pdf">Read the whitepaper</a>
+              <a class="btn btn-ghost" href="#downloads">Get a client</a>
               <!-- hidden with the installer section: <a class="btn btn-ghost" href="#node">Run a node</a> -->
             </div>
             <ul class="hero-facts">
@@ -334,8 +337,104 @@
         </div>
       </section>
 
+      <!-- ────────────────────────────  testnet  ─────────────────────────── -->
+      <section class="section section-alt" id="testnet">
+        <div class="wrap">
+          <p class="eyebrow">The network</p>
+          <h2>Sit down at the testnet</h2>
+          <p class="section-lede">
+            A live chain, real relays, real disputes — and chips that are worth
+            nothing, which is the only sane way to play a protocol this young.
+          </p>
+
+          <div class="grid cards">
+            <article class="card">
+              <h3>Play in the browser</h3>
+              <p>
+                The web client at <b>app.bitpk.top</b> runs the same game core as
+                the desktop build, compiled to WebAssembly, with JavaScript driving
+                the session. Nothing to install: it makes a wallet in the page, finds
+                an opponent through the chain's matchmaking, and plays the hand
+                through a relay.
+              </p>
+              <p>
+                Because the key lives in the page, it is for testnet chips and
+                nothing else. The desktop and mobile clients keep the key outside the
+                browser; use one of those for anything you would miss.
+              </p>
+              <a class="btn btn-primary" href="https://app.bitpk.top" rel="noopener noreferrer" target="_blank">Open the web client</a>
+              <p class="meta">app.bitpk.top · WebAssembly · testnet keys only</p>
+            </article>
+
+            <article class="card">
+              <h3>Watch the chain</h3>
+              <p>
+                The explorer at <b>explorer.bitpk.top</b> shows blocks, validators and
+                every transaction the protocol makes — intents matched, escrow locked,
+                results settled, evidence filed, verdicts paid out. When a hand ends in
+                a dispute, this is where you can read what consensus decided.
+              </p>
+              <p>
+                It is also the quickest way to check a payout: paste an address and the
+                account page lists what it has received.
+              </p>
+              <a class="btn btn-primary" href="https://explorer.bitpk.top" rel="noopener noreferrer" target="_blank">Open the explorer</a>
+              <p class="meta">explorer.bitpk.top · blocks, accounts, sessions</p>
+            </article>
+          </div>
+
+          <!-- Revealed by script.js once the faucet answers; a form that cannot
+               submit anywhere is worse than no form. -->
+          <div class="faucet" data-faucet hidden>
+            <div class="faucet-copy">
+              <h3>Take a starting stack</h3>
+              <p>
+                The faucet hands out a small amount of testnet CHIP — enough to sit
+                down at the low tables and lose a few hands. It is metered per
+                invitation, per wallet and per network, so what it gives you is a
+                stack, not a supply.
+              </p>
+              <p class="meta" data-faucet-terms></p>
+            </div>
+
+            <form class="faucet-form" data-faucet-form>
+              <label class="field" data-faucet-code-field>
+                <span class="label">Invitation code</span>
+                <input
+                  class="input mono"
+                  type="text"
+                  name="code"
+                  data-faucet-code
+                  placeholder="XXXX-XXXX-XXXX"
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                  maxlength="14"
+                >
+              </label>
+
+              <label class="field">
+                <span class="label">Your testnet address</span>
+                <input
+                  class="input mono"
+                  type="text"
+                  name="address"
+                  data-faucet-address
+                  placeholder="xpoker1…"
+                  autocomplete="off"
+                  spellcheck="false"
+                >
+              </label>
+
+              <button class="btn btn-primary" type="submit" data-faucet-submit>Deal me in</button>
+              <p class="faucet-note" data-faucet-note role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
       <!-- ───────────────────────────  downloads  ────────────────────────── -->
-      <section class="section section-alt" id="downloads">
+      <section class="section" id="downloads">
         <div class="wrap">
           <p class="eyebrow">Downloads</p>
           <h2>Get a client</h2>
@@ -450,6 +549,8 @@
         <nav class="footer-links" aria-label="Footer">
           <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
           <a href="#downloads">Downloads</a>
+          <a href="https://app.bitpk.top" rel="noopener noreferrer" target="_blank">Web client</a>
+          <a href="https://explorer.bitpk.top" rel="noopener noreferrer" target="_blank">Explorer</a>
           <!-- hidden with the installer section: <a href="#node">Run a node</a> -->
           <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
         </nav>

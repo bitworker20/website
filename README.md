@@ -8,16 +8,17 @@ small script — no framework, no build step, no bundler. Everything on it is
 sourced from `docs/whitepaper/bitpoker-whitepaper.md` in the monorepo; if the
 whitepaper and the page disagree, the whitepaper is right and the page is stale.
 
-**The site is currently behind a coming-soon gate** — see below. `index.html` is
-the gate; the real page is the `<token>.html` file, named after a token derived
-from the passphrase.
+**The site is invitation only** — see below. `index.html` is the gate; the real
+page is the `<token>.html` file, named after a token derived from the
+passphrase.
 
 ```
-index.html          the coming-soon page (self-contained: inline CSS, no hints)
-gate.js             the knock; holds a salt, a verifier and the target filename
+index.html          the invitation gate (self-contained: inline CSS, no hints)
+gate.js             both doors: an invitation code, or the site's passphrase
+config.js           where the faucet, the explorer and the web client live
 <token>.html        the real site
 styles.css          the site's stylesheet
-script.js           mobile menu, copy buttons, "lock this browser"
+script.js           mobile menu, copy buttons, "lock this browser", the faucet
 install.sh          the one-line server installer the page links to
 robots.txt          disallow everything, both pages
 tools/gate.py       rotate the passphrase, inspect or check the current one
@@ -26,11 +27,22 @@ assets/screenshots/ real captures of the Qt desktop client
 tests/test_site.py  contract suite
 ```
 
-## The coming-soon gate
+## The invitation gate
 
-A JavaScript check on a static host would be theatre — the real page would still
-be sitting in the source, one *view source* away. So the passphrase is not a
-password checked against the content; **the passphrase is the address**.
+One slot on the front page takes two different things, because the site has two
+doors and they protect against different problems.
+
+**An invitation code** — twelve Crockford base32 characters, `K7M2-9QXD-4T8B` —
+is checked by `poker-faucetd` (see `docs/faucet/README.md` in the monorepo). The
+daemon can count codes, expire them and revoke them, so this is the door that
+answers *who came in* and can be shut behind one person. It answers with a
+ticket, which the page keeps so the faucet on the other side does not ask for
+the code again.
+
+**The site's passphrase** is checked in the page, with no network at all. A
+JavaScript check on a static host would be theatre — the real page would still
+be sitting in the source, one *view source* away — so the passphrase is not a
+password compared against the content; **the passphrase is the address**.
 
 One PBKDF2-SHA256 derivation (250 000 iterations, random salt) produces 24 bytes
 that split into two independent halves:
@@ -43,16 +55,27 @@ that split into two independent halves:
   linked from anywhere, not named in `index.html`, and cannot be derived from
   the verifier.
 
-Three ways in, all of them quiet:
+Keep the passphrase even once invitations are in use: it is the door that still
+opens when the daemon is down, and the only one that works with `api` unset in
+`config.js`.
+
+Three ways in:
 
 | | |
 |---|---|
-| Keyboard | just type the passphrase anywhere on the page — nothing is focused, nothing echoes |
-| Link | `https://<host>/#<passphrase>` — the hash is stripped from the URL before the redirect |
-| Phone | tap the mark five times; a password field appears |
+| The slot | type or paste either an invitation code or the passphrase; codes are grouped as you type, anything else is left alone |
+| Link | `https://<host>/#<code-or-passphrase>` — the hash is stripped from the URL before the redirect |
+| Keyboard | type the passphrase anywhere *outside* the slot — nothing is focused, nothing echoes, and a wrong guess looks exactly like an idle page |
 
 A browser that has been through remembers it (`localStorage`) and goes straight
-in next time; the *Lock this browser* link in the site footer forgets it.
+in next time; the *Lock this browser* link in the site footer forgets both the
+gate and the faucet ticket.
+
+The card on the gate is not decoration doing nothing: it is the only feedback
+there is. It turns over to an ace when a code is accepted, and to a seven when
+it is not — but it stays face down when the daemon could not be *reached*,
+because a code that was never judged has not been rejected, and saying "not on
+the list" there would be a lie.
 
 ### What this does and does not protect
 
@@ -67,6 +90,8 @@ It keeps the site **out of sight**, not out of reach:
   gate also opens over plain http and `file://`. Convenient for testing, but it
   means an insecure origin is not a barrier to anyone either.
 - Anyone who gets in can share the URL, and it keeps working until rotated.
+  Revoking an invitation stops it funding wallets; it does not evict whoever
+  already has the address.
 
 For actual access control, put the site behind HTTP basic auth or an identity
 proxy (Cloudflare Access, oauth2-proxy) and drop the gate. This is a locked door
@@ -89,6 +114,38 @@ Going public later is one commit: rename the real page back to `index.html`,
 delete `gate.js`, `tools/gate.py` and `robots.txt`, and restore the page's
 `og:image` and indexable `robots` meta.
 
+## The testnet section, and config.js
+
+The page's `#testnet` block is the only part of the site that points at
+something running rather than at a document: the web client
+(`app.bitpk.top`), the block explorer (`explorer.bitpk.top`), and a faucet form
+that hands out a starting stack of test chips.
+
+All three addresses live in one file, `config.js`, loaded by both pages:
+
+```js
+window.BITPOKER = {
+  api: "https://api.bitpk.top",          // poker-faucetd: the gate and the faucet
+  explorer: "https://explorer.bitpk.top",
+  webapp: "https://app.bitpk.top"
+};
+```
+
+Nothing secret belongs in it — it ships in the page.
+
+**With `api` empty the site still works.** The gate then opens only for the
+passphrase, and the faucet panel stays hidden: it ships with `hidden` set and
+`script.js` reveals it only after `/v1/info` answers, because a form that
+cannot submit anywhere is worse than no form. The same is true when the daemon
+is simply down or its CORS list does not name this origin.
+
+The panel does not ask for an invitation code when the gate already stored a
+ticket — which is the usual case, since the visitor got in with one. Visitors
+who came through the passphrase door see the code field instead.
+
+Operating the daemon on the other end — limits, invitations, systemd, nginx —
+is `docs/faucet/README.md` in the monorepo.
+
 ## Preview locally
 
 ```sh
@@ -107,17 +164,26 @@ From the monorepo root:
 python3 -m unittest discover -s website/tests -v
 ```
 
-35 tests: page structure and required sections, link-preview metadata, icons,
+43 tests: page structure and required sections, link-preview metadata, icons,
 every local asset existing on disk, external-link safety, the three release
 downloads pointing at asset names that survive a new release, the installer
 section staying hidden (no visible install command, no dead `#node` link) and
 any command it does show using a role `install.sh` accepts, the installer
-parsing and rejecting unknown roles, accessibility affordances (skip link, landmarks, menu
-semantics, screenshot alt text, reduced motion) — and, for the gate: that the
-coming-soon page leaks neither the address nor the content, that no other file
-in the repository names the target, that both pages are `noindex`, that the
-derivation is deterministic and salt-dependent, that the gate still opens where
-`crypto.subtle` does not exist, and that a wrong passphrase is rejected.
+parsing and rejecting unknown roles, accessibility affordances (skip link,
+landmarks, menu semantics, screenshot alt text, reduced motion).
+
+For the testnet section: that the web client and the explorer are both linked,
+that both pages read the same `config.js`, that the faucet panel ships hidden
+and its form is labelled, that the faucet endpoint comes from the config rather
+than a hard-coded host, and that *Lock this browser* forgets the invitation
+ticket as well as the gate.
+
+For the gate: that it leaks neither the address nor the content, that no other
+file in the repository names the target, that both pages are `noindex`, that
+both doors are wired (the code to the daemon, the passphrase to the local
+derivation), that an unreachable daemon is not reported as a wrong code, that
+the derivation is deterministic and salt-dependent, that the gate still opens
+where `crypto.subtle` does not exist, and that a wrong passphrase is rejected.
 
 The suite finds the real page the way the gate does, by reading `gate.js`, so
 rotating the passphrase does not break it.
@@ -168,11 +234,12 @@ script.
 
 ## Before this goes live
 
-Four things are written against hosts or events that do not exist yet:
+Five things are written against hosts or events that do not exist yet:
 
 | What | Where | Currently |
 |---|---|---|
 | The gate | `gate.js` | rotate the passphrase at deploy time, or remove the gate entirely when the site goes public |
+| Service addresses | `config.js` | `api.bitpk.top`, `explorer.bitpk.top` and `app.bitpk.top`. The faucet host must also name this site's origin in its `allowed-origins`, or the browser drops the answer and the page concludes there is no faucet |
 | Social-card URL | the site page's `og:image` / `twitter:image` | relative `assets/og-image.png`; some scrapers will not resolve a relative URL — make it absolute once there is a domain |
 | `install.sh` assets | `install.sh` `BITPOKER_REPO` | it fetches `bitpoker-{node,relay}-linux-{amd64,arm64}.tar.gz`, which the release does not publish — it ships one combined `bitpoker-bin-ubuntu-x64.tar.gz`. Reconcile the two before the installer section goes back on the page |
 | Network manifest | `install.sh` `MANIFEST_URL` | `networks/pokerchain-testnet-1.env` in this repository, not yet created |

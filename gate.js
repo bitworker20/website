@@ -1,13 +1,19 @@
-// The coming-soon gate.
+// The invitation gate.
 //
-// The passphrase is never stored here. PBKDF2 stretches it into two halves: one
-// the gate compares against (so a wrong guess fails locally, silently, with no
-// request that could confirm a near miss), and one that *is* the filename of
-// the real page. Nothing here names that page, and nothing links to it — the
-// passphrase is the address.
+// Two doors, one slot. What you type is either an invitation code — twelve
+// Crockford base32 characters, checked by poker-faucetd, which can count them,
+// expire them and revoke them — or the site's own passphrase, which is checked
+// here with no network at all.
 //
-// Rotate it with tools/gate.py; see that file for what this does and does not
-// protect against.
+// The passphrase door is the one that still works when nothing else does: it
+// needs no server, and it is not a password compared against a stored value.
+// PBKDF2 stretches it into two halves, one the gate compares against and one
+// that *is* the filename of the real page. Rotate it with tools/gate.py.
+//
+// Neither door is a wall — see the README. The invitation half is about
+// knowing who came in and being able to withdraw a code; the passphrase half
+// is about the site not being casually stumbled into. Anyone who gets in can
+// share the URL until it is rotated.
 
 (function () {
   "use strict";
@@ -21,7 +27,15 @@
   };
 
   var STORE_KEY = "bitpoker.gate";
+  var INVITE_KEY = "bitpoker.invite";
+  var API = (window.BITPOKER && window.BITPOKER.api) || "";
   var subtle = window.crypto && window.crypto.subtle;
+
+  // Crockford base32 minus the four characters that look like digits, which
+  // the server folds rather than rejects — so the gate folds them the same way
+  // and a code read off a phone screen still works.
+  var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  var CODE_LEN = 12;
 
   function hexToBytes(hex) {
     var out = new Uint8Array(hex.length / 2);
@@ -194,25 +208,70 @@
       });
   }
 
-  function enter() {
+  // ── the two doors ──────────────────────────────────────────────────────────
+
+  function remember(key, value) {
     try {
-      window.localStorage.setItem(STORE_KEY, CONFIG.verifier);
+      window.localStorage.setItem(key, value);
     } catch (error) {
       /* private mode: the visit still works, it just will not be remembered */
     }
-    window.location.replace(CONFIG.target);
   }
 
-  function attempt(passphrase) {
-    if (!CONFIG.verifier) return Promise.resolve(false);
+  function enter(target) {
+    remember(STORE_KEY, CONFIG.verifier);
+    window.location.replace(target || CONFIG.target);
+  }
+
+  // canonicalCode returns the twelve-character form of what was typed, or ""
+  // when it is not shaped like a code at all — in which case it is treated as
+  // the passphrase instead, and the same slot serves both doors.
+  function canonicalCode(raw) {
+    var out = "";
+    var text = String(raw).toUpperCase();
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (ch === " " || ch === "-" || ch === "_" || ch === ".") continue;
+      if (ch === "O") ch = "0";
+      else if (ch === "I" || ch === "L") ch = "1";
+      else if (ch === "U") ch = "V";
+      if (ALPHABET.indexOf(ch) < 0) return "";
+      out += ch;
+    }
+    return out.length === CODE_LEN ? out : "";
+  }
+
+  function attemptPassphrase(passphrase) {
+    if (!CONFIG.verifier || !passphrase) return Promise.resolve(false);
     return derive(passphrase).then(function (derived) {
-      if (!equal(derived.verifier, CONFIG.verifier)) return false;
-      enter();
-      return true;
+      return equal(derived.verifier, CONFIG.verifier);
     });
   }
 
-  // A browser that has been through the gate before goes straight in.
+  // attemptCode asks poker-faucetd. A rejection comes back with the reason the
+  // daemon gave, which is worth showing: "that invitation has been withdrawn"
+  // and "that is not an invitation we sent" send a visitor to different places.
+  function attemptCode(code) {
+    if (!API) return Promise.resolve({ ok: false, offline: true });
+    return window
+      .fetch(API.replace(/\/+$/, "") + "/v1/invite/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code })
+      })
+      .then(function (response) {
+        return response.json().then(function (body) {
+          return { ok: response.ok && body.ok, body: body };
+        });
+      })
+      .catch(function () {
+        // Unreachable, blocked, offline: not a rejection. The passphrase door
+        // is still there, and saying "wrong code" here would be a lie.
+        return { ok: false, offline: true };
+      });
+  }
+
+  // A browser that has been through goes straight in.
   try {
     if (window.localStorage.getItem(STORE_KEY) === CONFIG.verifier && CONFIG.verifier) {
       window.location.replace(CONFIG.target);
@@ -223,84 +282,170 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    var mark = document.querySelector("[data-knock]");
+    var deck = document.querySelector("[data-deck]");
+    var form = document.querySelector("[data-form]");
     var field = document.querySelector("[data-knock-field]");
+    var submit = document.querySelector("[data-submit]");
+    var note = document.querySelector("[data-note]");
+    var pip = document.querySelector("[data-pip]");
+    var suit = document.querySelector("[data-suit]");
+    var face = document.querySelector("[data-face]");
     var busy = false;
+    var flipBack = null;
 
-    // One PBKDF2 run takes long enough that a fast typist can finish the
-    // passphrase while the previous keystroke is still being checked. Dropping
-    // those would mean the correct suffix is never tested, so the newest
-    // candidate waits its turn instead.
-    var pending = null;
-
-    function tryPassphrase(value) {
-      if (!value) return;
-      if (busy) {
-        pending = value;
-        return;
-      }
-      busy = true;
-      attempt(value).then(
-        function (ok) {
-          busy = false;
-          if (!ok && field) {
-            // No message: a failure and an idle page look the same.
-            field.value = "";
-          }
-          var next = pending;
-          pending = null;
-          if (!ok && next && next !== value) tryPassphrase(next);
-        },
-        function () {
-          busy = false;
-          pending = null;
-        }
-      );
+    function say(message, bad) {
+      if (!note) return;
+      note.textContent = message;
+      note.classList.toggle("bad", !!bad);
     }
 
-    // A link can carry it: /#passphrase — handy for sending someone in.
+    function show(rank, symbol, outcome) {
+      if (!face || !deck) return;
+      pip.textContent = rank;
+      suit.innerHTML = symbol;
+      face.classList.remove("win", "lose");
+      face.classList.add(outcome);
+      deck.classList.add("flipped");
+    }
+
+    function reject(message) {
+      window.clearTimeout(flipBack);
+      // Seven-deuce: the worst hand you can be dealt, which is the joke.
+      show("7", "&diams;", "lose");
+      say(message || "Not on the list.", true);
+      if (field) {
+        field.classList.remove("shake");
+        void field.offsetWidth;          // restart the animation
+        field.classList.add("shake");
+        field.select();
+      }
+      flipBack = window.setTimeout(function () {
+        if (deck) deck.classList.remove("flipped");
+      }, 1900);
+    }
+
+    function accept(result) {
+      window.clearTimeout(flipBack);
+      show("A", "&spades;", "win");
+      say("Seat's yours.");
+      if (result && result.ticket) {
+        remember(INVITE_KEY, JSON.stringify({
+          ticket: result.ticket,
+          expires_at: result.expires_at || "",
+          invite_id: result.invite_id || "",
+          grant_uchip: result.grant_uchip || ""
+        }));
+      }
+      document.body.classList.add("dealt");
+      window.setTimeout(function () {
+        enter(result && result.target);
+      }, 620);
+    }
+
+    function working(state) {
+      busy = state;
+      if (!submit) return;
+      submit.disabled = state;
+      submit.textContent = state ? "Cutting the deck…" : "Take a seat";
+    }
+
+    // knock runs both doors in the order that costs least: a code goes to the
+    // daemon, and anything the daemon does not accept is still tried as the
+    // passphrase before the visitor is told no.
+    function knock(typed) {
+      var value = String(typed || "").trim();
+      if (!value || busy) return;
+      working(true);
+
+      var code = canonicalCode(value);
+      var first = code ? attemptCode(code) : Promise.resolve({ ok: false, offline: true });
+
+      first
+        .then(function (result) {
+          if (result.ok) {
+            accept(result.body);
+            return null;
+          }
+          return attemptPassphrase(value).then(function (opened) {
+            if (opened) {
+              accept(null);
+              return null;
+            }
+            var unreachable = result.offline && code && API;
+            if (unreachable) {
+              // Do not flip the card: the code was never actually judged.
+              say("Could not reach the door. Check your connection and try again.", true);
+              if (field) field.select();
+            } else {
+              reject(result.body && result.body.error && result.body.error.message);
+            }
+            return null;
+          });
+        })
+        .catch(function () {
+          reject("Something went wrong on the way in. Try again.");
+        })
+        .then(function () {
+          working(false);
+        });
+    }
+
+    // Type it, paste it, or arrive with it in a link: /#CODE.
+    if (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        knock(field ? field.value : "");
+      });
+    }
+
+    // Group the code as it is typed, but only while it still looks like one —
+    // the same slot has to accept a passphrase with spaces in it.
+    if (field) {
+      field.addEventListener("input", function () {
+        var raw = field.value;
+        var stripped = raw.replace(/[\s\-_.]/g, "");
+        if (!/^[0-9A-Za-z]{0,12}$/.test(stripped)) return;
+        var upper = stripped.toUpperCase();
+        var grouped = upper.match(/.{1,4}/g);
+        var formatted = grouped ? grouped.join("-") : "";
+        if (formatted !== raw) {
+          var atEnd = field.selectionStart === raw.length;
+          field.value = formatted;
+          if (atEnd) field.setSelectionRange(formatted.length, formatted.length);
+        }
+      });
+    }
+
     if (window.location.hash.length > 1) {
       var fromHash = decodeURIComponent(window.location.hash.slice(1));
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, "", window.location.pathname);
       }
-      tryPassphrase(fromHash);
+      if (field) field.value = fromHash;
+      knock(fromHash);
     }
 
-    // On a keyboard: just type it. Nothing echoes, nothing is focused.
+    // The quiet door: type the passphrase anywhere outside the slot. Nothing
+    // echoes, nothing is focused, and a wrong guess looks exactly like an idle
+    // page — which is the point of it still being here.
     var buffer = "";
     document.addEventListener("keydown", function (event) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (document.activeElement === field) return;
       if (event.key.length !== 1) return;
       buffer = (buffer + event.key).slice(-64);
-      if (CONFIG.length && buffer.length >= CONFIG.length) {
-        tryPassphrase(buffer.slice(-CONFIG.length));
+      if (CONFIG.length && buffer.length >= CONFIG.length && !busy) {
+        var candidate = buffer.slice(-CONFIG.length);
+        attemptPassphrase(candidate).then(function (opened) {
+          if (opened) accept(null);
+        });
       }
     });
 
-    // On a phone there is no keyboard to type into, so five taps on the mark
-    // bring up a field. Five, because nobody taps a logo five times by accident.
-    if (mark && field) {
-      var taps = 0;
-      var timer = null;
-      mark.addEventListener("click", function () {
-        taps += 1;
-        window.clearTimeout(timer);
-        timer = window.setTimeout(function () { taps = 0; }, 2000);
-        if (taps >= 5) {
-          taps = 0;
-          field.hidden = false;
-          field.focus();
-        }
-      });
-
-      field.addEventListener("keydown", function (event) {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          tryPassphrase(field.value.trim());
-        }
-      });
+    // Tapping the card focuses the slot: on a phone that is the only way in.
+    var card = document.querySelector("[data-knock]");
+    if (card && field) {
+      card.addEventListener("click", function () { field.focus(); });
     }
   });
 })();
