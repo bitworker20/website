@@ -254,7 +254,7 @@ The client packages are **not** committed here; the buttons point at
 | Download APK | `bitpoker-android-arm64.apk` — Qt/QML mobile wallet, debug-signed |
 | Download DMG | `BitPoker-arm64.dmg` — Qt desktop client, Apple Silicon, macOS 12+ |
 | Download AppImage | `BitPoker-x86_64.AppImage` — Qt desktop client, self-contained, glibc 2.38+ |
-| Download tar.gz | `bitpoker-bin-ubuntu-x64.tar.gz` — pokerchaind, poker-relayd, TUI, dispatcher |
+| Download tar.gz | `bitpoker-bin-ubuntu-x64.tar.gz` — pokerchaind, poker-relayd, poker-faucetd, TUI, dispatcher |
 | SHA256SUMS.txt | checksums for all of the above |
 
 `latest/download/<name>` only resolves names that stay put between releases,
