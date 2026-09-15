@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Overview — BitPoker internal engineering reference</title>
+    <meta name="description" content="Internal technical reference for BitPoker: mental-poker cryptography, the game protocol, the Cosmos chain, deterministic in-consensus adjudication, relay economics and operations.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html" aria-current="page">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Internal engineering reference</p>
+          <h1>How BitPoker actually works.</h1>
+          <p class="lede">
+            A two-player poker system in which no server ever holds the deck, no
+            operator ever holds the money, and no human referee ever decides a
+            disputed hand. This site is the working description of that system for
+            the people who build and run it. Where this page and the code
+            disagree, the code is right — and the page should be fixed.
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <p class="eyebrow">The claim</p>
+          <h2>Three powers, three separate answers</h2>
+          <p class="section-lede">
+            Online poker asks players to trust a house with three separate
+            powers: the power to <em>shuffle</em>, the power to <em>see</em>,
+            and the power to <em>pay</em>. Historically all three have been
+            abused, and in a client–server design the first is unauditable by
+            construction — the player receives cards and a promise. BitPoker
+            answers each with a different mechanism, on a different plane.
+          </p>
+
+          <div class="grid cards">
+            <div class="card">
+              <h3>The shuffle — cryptography</h3>
+              <p>
+                The deck is a vector of elliptic-curve points on FourQ,
+                encrypted under a key neither player holds alone. Each player
+                shuffles once — a secret permutation plus re-encryption — and
+                proves with a Neff-style NIZK that the output really is a
+                permutation-and-re-encryption of the input. For the deck to be
+                biased, someone would have to break the proof system.
+              </p>
+            </div>
+            <div class="card">
+              <h3>The money — the chain</h3>
+              <p>
+                Both stakes are escrowed by <code>pokerchain</code> (Cosmos
+                SDK) at matchmaking time. The happy path releases on a
+                cooperative settlement both players sign. Every state that can
+                hold escrow has a bounded exit — an invariant the test suite
+                walks the state enum to enforce.
+              </p>
+            </div>
+            <div class="card">
+              <h3>The verdict — recomputation</h3>
+              <p>
+                When cooperation fails there is no arbiter. A deterministic C++
+                engine, linked into every validator via cgo, replays the hand
+                from the players' own signed message history and their revealed
+                session secrets. The verdict is a pure function of on-chain
+                state, bit-identical on every machine and every architecture.
+              </p>
+            </div>
+          </div>
+
+          <div class="callout">
+            <p>
+              <strong>The hard parts were not the parts that look hard.</strong>
+              Barnett–Smart and the shuffle proof are textbook. What took real
+              engineering was guaranteeing bit-identical execution of a poker
+              rules engine inside consensus across CPU architectures;
+              discovering that a relay-mediated connection gives no signal at
+              all when the peer dies; and resisting the temptation to fix
+              client problems by adding rules to consensus. Those stories are
+              on the <a href="lessons.html">Lessons</a> page, because they
+              should shape every future change here.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt">
+        <div class="wrap">
+          <p class="eyebrow">Architecture</p>
+          <h2>Four planes, four different trust profiles</h2>
+          <p class="section-lede">
+            Gameplay traffic never touches the chain. The chain never sees a
+            card before a dispute. The relay sees frames and nothing else. Each
+            plane is sized to what it actually needs to be trusted with.
+          </p>
+
+          <figure class="diagram">
+            <svg viewBox="0 0 960 440" role="img" aria-labelledby="arch-title arch-desc">
+              <title id="arch-title">BitPoker architecture</title>
+              <desc id="arch-desc">
+                A consensus plane running pokerchain sits above a player client
+                and a relay daemon which exchange opaque WebSocket frames; the
+                client is built on a portable sans-IO game core, and the chain
+                calls the same core's adjudicator inside consensus.
+              </desc>
+              <g class="d-box">
+                <rect x="20" y="20" width="920" height="112" rx="14"/>
+                <text class="d-title" x="44" y="56">pokerchain · Cosmos SDK — consensus plane</text>
+                <text class="d-sub" x="44" y="82">intents · matchmaking · escrow · relay registry &amp; assignment · session lifecycle</text>
+                <text class="d-sub" x="44" y="106">cooperative settlement · evidence · secrets · <tspan class="d-accent">AdjudicateSession → libpoker_adjudicator (C++, in consensus)</tspan></text>
+              </g>
+
+              <g class="d-arrow">
+                <path d="M180 132 L180 214"/>
+                <path d="M780 132 L780 214"/>
+                <text class="d-label" x="192" y="180">tx · query</text>
+                <text class="d-label" x="676" y="180">rewards · answers</text>
+              </g>
+
+              <g class="d-box">
+                <rect x="20" y="214" width="360" height="96" rx="14"/>
+                <text class="d-title" x="44" y="250">player client</text>
+                <text class="d-sub" x="44" y="276">native C++ or WASM in the browser</text>
+              </g>
+
+              <g class="d-box">
+                <rect x="580" y="214" width="360" height="96" rx="14"/>
+                <text class="d-title" x="604" y="250">poker-relayd</text>
+                <text class="d-sub" x="604" y="276">forwarding only · never sees a card</text>
+              </g>
+
+              <g class="d-arrow d-arrow-strong">
+                <path d="M392 262 L568 262"/>
+                <text class="d-label d-center" x="480" y="246">WSS frames</text>
+                <text class="d-label d-center" x="480" y="292">opaque to the relay</text>
+              </g>
+
+              <g class="d-arrow">
+                <path d="M180 310 L180 350"/>
+              </g>
+
+              <g class="d-box d-box-core">
+                <rect x="20" y="350" width="920" height="76" rx="14"/>
+                <text class="d-title" x="44" y="384">game core — sans-IO, portable, zero I/O</text>
+                <text class="d-sub" x="44" y="408">Barnett–Smart card crypto · Neff shuffle NIZK · SchnorrQ · TH / O8 / ZJH state machines · hand evaluation</text>
+              </g>
+            </svg>
+            <figcaption>
+              The same sans-IO core is linked by the validators (through cgo),
+              by the browser clients (through WASM) and by the native clients.
+              That is why a verdict computed in consensus matches the hand the
+              players actually played — there is no second implementation of
+              "the rules, as understood by the referee".
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <p class="eyebrow">The structural decision</p>
+          <h2>Partitioned by who links it, not by topic</h2>
+          <p class="section-lede">
+            The C++ codebase (~51k lines, with ~39k lines of Go on the chain
+            side) is split along <em>consumer boundaries</em>. This is the
+            single most consequential structural decision in the project,
+            because it is what makes the consensus-critical path defensible
+            against a well-meaning contributor.
+          </p>
+
+          <div class="defs">
+            <table>
+              <tr>
+                <th>bitpoker_gamecore</th>
+                <td>
+                  Cryptographic primitives, card/stack types, and the sans-IO
+                  subset of each game (<code>*_hand_core</code>,
+                  <code>*_rank</code>, <code>*_state</code>,
+                  <code>*_protocol</code>). Zero <code>boost::asio</code>,
+                  zero wallet code, zero I/O.
+                </td>
+              </tr>
+              <tr>
+                <th>bitpoker_core</th>
+                <td>
+                  Links gamecore and adds the asio coroutine session layer
+                  (<code>common/</code>), Cosmos signing (<code>wallet/</code>),
+                  chain and relay clients, and the <code>*_game.*</code> files
+                  that are the only ones permitted to touch asio.
+                </td>
+              </tr>
+              <tr>
+                <th>poker_adjudicator</th>
+                <td>
+                  The C ABI shared by Go validators. Links
+                  <strong><code>bitpoker_gamecore</code> only</strong> —
+                  deliberately <em>not</em> <code>bitpoker_core</code>. A
+                  non-deterministic dependency cannot leak into the consensus
+                  path by adding a single <code>#include</code>, because the
+                  link fails.
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <p class="note">
+            The placement rule is mechanical: if
+            <code>grep -l boost/asio</code> matches, the file belongs to the
+            transport layer; otherwise to the core.
+            <code>test/check_gamecore_boundary.cmake</code> enforces it.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section-alt">
+        <div class="wrap">
+          <p class="eyebrow">Where to go next</p>
+          <h2>The reference, by topic</h2>
+
+          <div class="grid map">
+            <div class="card">
+              <h3><a href="crypto.html">Cryptography</a></h3>
+              <p>
+                FourQ, joint keys, the Barnett–Smart deck, the Neff shuffle
+                NIZK, per-card reveal shares, and the signed message chain
+                that makes evidence self-authenticating.
+              </p>
+              <span class="card-tag">include/core · src/core</span>
+            </div>
+            <div class="card">
+              <h3><a href="protocol.html">Game protocol</a></h3>
+              <p>
+                Hand lifecycle over C++20 coroutines, the sans-IO state
+                machines, the shared community-card core (TH / O8 / ZJH),
+                the settlement transcript, resync and reconnection.
+              </p>
+              <span class="card-tag">community · texasholdem · omaha · zhajinhua</span>
+            </div>
+            <div class="card">
+              <h3><a href="chain.html">The chain</a></h3>
+              <p>
+                Intents and matching, escrow, the session state machine and
+                its liveness invariant, cooperative settlement, escalation,
+                and the governance parameters that bound everything.
+              </p>
+              <span class="card-tag">pokerchain/x/pokerchain</span>
+            </div>
+            <div class="card">
+              <h3><a href="adjudication.html">Adjudication</a></h3>
+              <p>
+                Why determinism is the whole problem, the three-layer guard,
+                the six-stage pipeline, verdicts and fault attribution, and
+                who triggers what and when.
+              </p>
+              <span class="card-tag">src/adjudicator · binding/adjudicator</span>
+            </div>
+            <div class="card">
+              <h3><a href="relay.html">Transport &amp; relay economics</a></h3>
+              <p>
+                Why relays instead of P2P, connection establishment, the
+                assignment–answer protocol, service proof, bond, the capped
+                fee market, and relay identity.
+              </p>
+              <span class="card-tag">cmd/poker-relayd · x/pokerchain/relay</span>
+            </div>
+            <div class="card">
+              <h3><a href="operations.html">Operations</a></h3>
+              <p>
+                The verification matrix, the single source of gas truth,
+                coordinated upgrades, and how to run each component.
+              </p>
+              <span class="card-tag">docs/adr · packaging · deploy</span>
+            </div>
+            <div class="card">
+              <h3><a href="lessons.html">Lessons &amp; open problems</a></h3>
+              <p>
+                What happened when the design met real networks: the
+                disconnect that never disconnected, transactions that
+                "succeeded", and the gaps we still carry honestly.
+              </p>
+              <span class="card-tag">the part that was actually hard</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <p class="eyebrow">Reading order</p>
+          <h2>If you are joining now</h2>
+          <ol class="steps">
+            <li>
+              <span class="step-no">01</span>
+              <h3>Read the claim, then the threat model</h3>
+              <p>
+                This page, then the whitepaper's §1.3. Everything downstream
+                is a response to "who might be lying, and what would it cost
+                them".
+              </p>
+            </li>
+            <li>
+              <span class="step-no">02</span>
+              <h3>Follow one hand end to end</h3>
+              <p>
+                Protocol → chain → adjudication. A hand that settles
+                cooperatively touches two transactions; a hand that ends in
+                a dispute touches six. Know both paths before touching code.
+              </p>
+            </li>
+            <li>
+              <span class="step-no">03</span>
+              <h3>Read the Lessons page before your first PR</h3>
+              <p>
+                Most of the rules in this codebase — "read back every
+                DeliverTx", "every state has a bounded exit", "never fix a
+                client problem in consensus" — are scar tissue, and knowing
+                the scar stops you re-inflicting it.
+              </p>
+            </li>
+            <li>
+              <span class="step-no">04</span>
+              <h3>Run the interop e2e</h3>
+              <p>
+                <code>bitpoker/test/interop/run_interop_e2e.sh</code> plays
+                three hands between a WASM peer and a native peer. It is the
+                fastest way to see the whole stack move, and the only way to
+                catch a rules fork between client classes.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons &amp; open problems</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

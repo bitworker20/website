@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transport &amp; relay economics — BitPoker internal engineering reference</title>
+    <meta name="description" content="Why relays instead of P2P, connection establishment, the assignment–answer protocol, service proof, bond, capped fee market, relay identity.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html" aria-current="page">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Plane 2b · the wire</p>
+          <h1>Relays: availability, never trust.</h1>
+          <p class="lede">
+            Two consumer endpoints behind carrier-grade NAT cannot reliably
+            reach each other, and a browser client never can. Relays carry the
+            frames. They cannot read a card, cannot bias the shuffle, and are
+            paid out of the pot itself — never from block subsidy — only for
+            sessions the chain saw them answer and then saw settle.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#why">Why relays, not P2P</a></li>
+            <li><a href="#connect">Connection establishment</a></li>
+            <li><a href="#assignment">Assignment–answer &amp; endpoint privacy</a></li>
+            <li><a href="#proof">Service proof: settlement is the receipt</a></li>
+            <li><a href="#economics">Bond, capacity, the capped fee market</a></li>
+            <li><a href="#identity">Relay identity</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="why">Why relays, not P2P</h2>
+          <p>
+            The original design was direct peer-to-peer. In practice, mobile
+            networks with carrier-grade NAT, corporate firewalls, and browser
+            clients with no listening socket at all cannot reliably
+            establish a direct connection — and a browser-based wallet client
+            <em>never</em> can. A relay is a forwarding node: it sees frames,
+            forwards them, and cannot read cards, because everything
+            meaningful is encrypted under a key the relay does not possess.
+          </p>
+          <p>
+            Relays are therefore an <strong>availability component, not a
+            trust component</strong>. The security consequences of a fully
+            malicious relay are limited to denial of service — and denial of
+            service by a relay is exactly the situation the escrow-timeout
+            and dispute paths were built to survive.
+          </p>
+
+          <h2 id="connect">Connection establishment</h2>
+          <ol class="pipeline">
+            <li>
+              <b>Match and assign on chain</b>
+              <span>
+                Both players open on-chain intents; the chain matches them,
+                escrows both stakes, creates a <code>GameSession</code>, and
+                <strong>deterministically assigns</strong> a primary relay
+                plus up to two backups by weighted hash.
+              </span>
+            </li>
+            <li>
+              <b>Relay answers with sealed blobs</b>
+              <span>
+                The assigned relay observes the new session and answers with
+                <code>MsgProvideRelayEndpoint</code>, carrying one
+                ECIES-sealed blob per player.
+              </span>
+            </li>
+            <li>
+              <b>Client decrypts its own blob</b>
+              <span>
+                Each client decrypts <em>its own</em> blob to obtain a
+                <code>wss://</code> URL, a one-time connect token, and an
+                expiry height, then opens the WebSocket presenting the token
+                in <code>Sec-WebSocket-Protocol</code> — the only header a
+                browser can set.
+              </span>
+            </li>
+            <li>
+              <b>Signed ClientHello</b>
+              <span>
+                The client authenticates with a signed
+                <code>ClientHello</code> (<code>cosmos-signature-v1</code>),
+                which the relay checks against on-chain session
+                authorisation.
+              </span>
+            </li>
+            <li>
+              <b>Session hello, then play</b>
+              <span>
+                The peers exchange <code>MsgSessionHello</code> (display
+                name, session pubkey, chain session id) and begin the hand.
+              </span>
+            </li>
+          </ol>
+
+          <p>
+            TLS uses on-chain public-key pinning for native clients: the
+            certificate's raw public key must equal the
+            <code>Relay.Pubkey</code> registered on chain, so a self-signed
+            certificate is sufficient and the trust anchor is consensus, not
+            a CA. Browsers cannot pin, so relays serving browsers must
+            present a real CA certificate; the protocol-layer signed
+            relay-hello covers relay impersonation in both cases.
+          </p>
+
+          <h2 id="assignment">Endpoint privacy: the assignment–answer protocol</h2>
+          <p>
+            Publishing relay endpoints on chain publishes a target list.
+            ADR-007 removes <code>endpoint</code> from the on-chain
+            <code>Relay</code> record entirely — the public key stays (it is
+            the trust anchor), only the network location is hidden. The
+            replacement:
+          </p>
+          <ol class="pipeline">
+            <li>
+              <b>Assignment stays in the keeper</b>
+              <span>
+                Deterministic weighted hash, as before. This
+                <em>must</em> stay in consensus: letting proposers choose
+                relays would let them route sessions to their own.
+              </span>
+            </li>
+            <li>
+              <b>ECIES-sealed answers</b>
+              <span>
+                <code>MsgProvideRelayEndpoint</code> carries two blobs, each
+                ECIES-sealed to that player's per-intent transport public key
+                (secp256k1 ECDH → HKDF-SHA256 → AES-256-GCM, AAD =
+                <code>"adr007-v1" ‖ session_id ‖ relay_id</code> to prevent
+                cross-session replay). Each blob holds a URL, a per-player
+                one-time connect token, and an expiry.
+              </span>
+            </li>
+            <li>
+              <b>Windows arbitrate failover</b>
+              <span>
+                The primary has an exclusive window <code>[H, H+W)</code>;
+                backup <em>i</em> unlocks at <code>H+(i+1)W</code>; the
+                <strong>first accepted answer wins</strong>. Without this
+                rule, two relays could each allocate resources and each
+                attract one player.
+              </span>
+            </li>
+            <li>
+              <b>Unanswered means void</b>
+              <span>
+                If every window expires unanswered, the session is voided
+                and both escrows refunded.
+              </span>
+            </li>
+            <li>
+              <b>Liveness redefined as real work</b>
+              <span>
+                With endpoints hidden there is nothing to probe, so
+                synthetic challenge/response is abandoned: <em>failing to
+                answer an assignment is itself on-chain evidence of
+                failure</em>. Misses are counted, decay over time, reduce
+                assignment weight, and accumulate toward slashing.
+              </span>
+            </li>
+          </ol>
+
+          <div class="callout">
+            <p>
+              <strong>The honest limit, stated in the ADR rather than
+              glossed:</strong> an adversary can still farm endpoints by
+              opening intents. Mitigations make it expensive (rotating
+              frontend pools, token gating that drops unauthenticated
+              traffic at the first packet, and the stake + gas cost of every
+              intent) but do not make discovery impossible. The goal is
+              <em>pricing discovery, not preventing it</em>. Volumetric
+              L3/L4 attacks remain a network-layer problem solved with
+              bandwidth, anycast or CDN fronting — the protocol cannot help
+              there, and the document says so.
+            </p>
+          </div>
+
+          <h2 id="proof">Service proof: settlement is the receipt</h2>
+          <p>
+            How do you prove a packet was forwarded? The decentralised-CDN
+            literature treats this as open, and so do we — by never asking
+            the question in isolation. BitPoker pays for an
+            <em>outcome</em> that the service is a precondition of, rather
+            than for the packets themselves.
+          </p>
+          <p>Two facts the chain records on its own are enough:</p>
+          <ul>
+            <li>
+              the accepted <code>relay_endpoint_answer</code>: signed by the
+              answering relay, unique per session, first-accepted-wins; and
+            </li>
+            <li>
+              <code>SETTLED</code>: reached only when both seats have
+              submitted matching results for a hand they played to the end.
+            </li>
+          </ul>
+          <p>
+            A hand cannot be played to the end without the transport, and
+            the transport for that session is the relay named in the answer.
+            So a settled session <strong>is</strong> the proof, and the
+            chain pays the relay inside the settlement transaction. This is
+            still not proof of delivery. It is a structure in which the only
+            way to be paid is for the two adversaries to complete a
+            protocol run through you.
+          </p>
+
+          <div class="defs">
+            <table>
+              <tr><th>Relay bills for a session it never served</th><td>Paid only to the relay whose answer the chain accepted.</td></tr>
+              <tr><th>Relay collects for an unassigned session</th><td>The answer is checked against the chain's own assignment.</td></tr>
+              <tr><th>Sybil self-play to farm fees</th><td>Self-funded rake makes it a guaranteed net loss after gas: money moves from your own player accounts to your own relay account.</td></tr>
+              <tr><th>Serving half a session then vanishing</th><td>Payment requires the session to reach <code>SETTLED</code>.</td></tr>
+              <tr><th>Players withholding to avoid the fee</th><td>The rake is sunk at matchmaking; an unpayable fee goes to the community pool, not back to the seats.</td></tr>
+              <tr><th>Fabricating a huge pot</th><td>Pricing is flat + capped bps.</td></tr>
+            </table>
+          </div>
+
+          <p>
+            An earlier design required a <em>bilateral adversarial
+            receipt</em> — a signature from each player over a receipt
+            string, collected by the relay and submitted as
+            <code>MsgClaimRelayReward</code>. It was written before the
+            endpoint-answer protocol existed, when the chain had no record of
+            which relay served a session. Once that record existed the
+            receipts were a second, weaker witness to a fact already on
+            chain — and a fragile one: both signatures were mandatory,
+            nothing reported a missing one, and any client that did not
+            implement receipt signing silently cost its relay the entire
+            fee. The message is retained for sessions that settled under the
+            old rule; nothing produces receipts any more. (This is the
+            canonical example on the <a href="lessons.html#capability">silent
+            capability gaps</a> lesson.)
+          </p>
+
+          <h2 id="economics">Bond, capacity, the capped fee market</h2>
+          <p>Bond buys two concrete things, which makes staking more than a ritual:</p>
+          <div class="defs">
+            <table>
+              <tr>
+                <th>assignment weight</th>
+                <td>
+                  <code>1000 · sqrt(bond / min_bond)</code> — sublinear, so
+                  a large operator gets more work but cannot buy a
+                  proportional monopoly.
+                </td>
+              </tr>
+              <tr>
+                <th>concurrency capacity</th>
+                <td>
+                  In-flight sessions are capped at
+                  <code>bond / relay_per_session_collateral</code>,
+                  enforced <em>at answer acceptance</em> — the moment work is
+                  actually taken on — so bond is genuine per-session
+                  collateral.
+                </td>
+              </tr>
+            </table>
+          </div>
+          <p>
+            Bond may be topped up instantly and partially unbonded; a queued
+            tranche stops supporting weight and capacity immediately but
+            <strong>remains slashable</strong>, and slashing draws from the
+            active bond first and the queue second. Without that ordering, a
+            misbehaving relay could front-run punishment by unbonding.
+          </p>
+          <p>
+            Pricing is a <strong>capped market</strong>: relays quote their
+            own <code>fee_flat</code> / <code>fee_bps</code>, governance
+            sets ceilings, and the quote feeds assignment weight (a zero
+            quote keeps full weight; quoting at the ceiling halves it).
+            Halving rather than zeroing is deliberate — price should
+            <em>tilt</em> the lottery, not decide it, or a single operator
+            undercutting to zero recreates the winner-take-all outcome the
+            market was meant to avoid. The session snapshots
+            <strong>the selected relay's quote</strong> at creation, so
+            neither a price change nor a governance vote can reprice a
+            session whose escrow is already locked.
+          </p>
+          <p>
+            Adjudicated sessions pay the relay too — deducted first from
+            forfeited escrow when there is a single at-fault party. The
+            reasoning is behavioural: if a session that ends in arbitration
+            pays the relay nothing, relays learn to avoid exactly the
+            players who most need a relay. Voided hands (refunds,
+            expired-dispute refunds) pay nothing, since both sides are
+            restored to their prior position.
+          </p>
+
+          <h2 id="identity">Relay identity</h2>
+          <p>
+            A relay's identity is rooted in a persistent ed25519 node key
+            (<code>relay_node_key.json</code>), from which the relay id is
+            derived:
+          </p>
+          <div class="codeblock">
+            <code>relay_id = bech32("relay", sha256(pubkey)[:20])</code>
+          </div>
+          <p>
+            The id is a <em>public-key commitment</em> rather than a name:
+            anyone can verify <code>relay_id == derive(pubkey)</code>, ids
+            cannot collide, restarts are idempotent, and the same key signs
+            the <code>/status/signed</code> endpoint and (in
+            <code>auto</code> TLS mode) the WSS leaf certificate. The
+            economic identity — the Cosmos account that posts bond and
+            receives rewards — stays deliberately separate from this
+            operational identity.
+          </p>
+
+          <p class="note">
+            Source: <code>pokerchain/cmd/poker-relayd/</code>,
+            <code>pokerchain/x/pokerchain/relay/</code>,
+            <code>bitpoker/{include,src}/relay/</code> (client side),
+            whitepaper §5 and §8, ADR-005, ADR-006, ADR-007.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="operations.html">Next: operations →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="lessons.html">Lessons &amp; open problems</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

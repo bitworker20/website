@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The chain — BitPoker internal engineering reference</title>
+    <meta name="description" content="pokerchain: intents and matching, escrow, the session state machine and its liveness invariant, cooperative settlement, escalation, governance parameters.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html" aria-current="page">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Plane 3 · the money</p>
+          <h1>pokerchain: escrow with no dead ends.</h1>
+          <p class="lede">
+            A Cosmos SDK application chain whose base denomination is
+            <code>uchip</code> (exponent 0, display <code>CHIP</code> at 10⁶).
+            It matches players, locks their stakes, assigns relays, releases
+            money on cooperation, and — only when cooperation fails — becomes
+            the court of last resort. This page is its state machine and the
+            invariant that keeps every wallet whole.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#intent">Intents and matching</a></li>
+            <li><a href="#lifecycle">Session lifecycle</a></li>
+            <li><a href="#liveness">The liveness invariant</a></li>
+            <li><a href="#cooperative">Cooperative settlement</a></li>
+            <li><a href="#escalation">Escalation</a></li>
+            <li><a href="#params">Governance parameters</a></li>
+            <li><a href="#gas">The gas table</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="intent">Intents and matching</h2>
+          <p>
+            <code>MsgOpenGameIntent</code> carries:
+          </p>
+          <div class="defs">
+            <table>
+              <tr><th>game_type</th><td>TH / O8 / ZJH — validated against the engine's capability list, not free text.</td></tr>
+              <tr><th>stake</th><td>Escrowed into the pot immediately on acceptance.</td></tr>
+              <tr><th>opponent (optional)</th><td>A named opponent for a private match; otherwise open matchmaking.</td></tr>
+              <tr><th>session pubkey (96 B)</th><td>The in-game FiatShamir public commitment — what a later secret reveal is checked against.</td></tr>
+              <tr><th>transport pubkey (33 B)</th><td>Compressed secp256k1, used only for the ECIES endpoint blob the relay delivers.</td></tr>
+            </table>
+          </div>
+          <p>
+            Compatible pending intents are matched in-consensus. Matching
+            creates a <code>GameSession</code>, assigns relays (see
+            <a href="relay.html#assignment">assignment–answer</a>), snapshots
+            the relay fee, and pseudo-randomly assigns seats by session hash —
+            so neither player chooses the button.
+          </p>
+
+          <h2 id="lifecycle">Session lifecycle</h2>
+          <div class="codeblock">
+            <span class="code-caption">GAME_SESSION_STATUS_* — five states, every one with a bounded exit</span>
+            <code>                 matched                both results agree
+  (intent) ──────────────► ACTIVE ─────────────────────────────► SETTLED
+                            │  one result submitted                 ▲
+                            ├──────────────► RESULT_PENDING ────────┤
+                            │                    │ result timeout   │
+                            │  evidence          ▼                  │
+                            ├──────────────►  DISPUTED ─────────────┘
+                            │                 adjudicate / deadline refund
+        no relay answer / active timeout
+                            └──────────────►  CANCELLED  (escrow refunded)</code>
+          </div>
+
+          <p>
+            The transitions that matter during development:
+          </p>
+          <ul>
+            <li>
+              <strong>ACTIVE → SETTLED</strong> is the happy path: both seats
+              submit matching <code>SubmitSessionResult</code>s.
+            </li>
+            <li>
+              <strong>ACTIVE → RESULT_PENDING</strong> when one result is in
+              and the peer's matching result is awaited; a matching second
+              result settles, a timeout escalates.
+            </li>
+            <li>
+              <strong>→ DISPUTED</strong> on the first
+              <code>SubmitSessionEvidence</code>. Escrow is protected and the
+              dispute deadline is stamped.
+            </li>
+            <li>
+              <strong>→ CANCELLED</strong> for sessions that never got
+              service or never played: voided assignments and active
+              timeouts refund both stakes.
+            </li>
+          </ul>
+
+          <h2 id="liveness">The liveness invariant</h2>
+          <div class="callout">
+            <p>
+              <strong>Every state that can hold escrow must have an exit that
+              a non-player can take after a bounded height.</strong> This is
+              an invariant, not a collection of individual handlers.
+              <code>escrow_liveness_test.go</code> walks the state enum to
+              enforce it: add a new state without adding its exit test and the
+              suite fails.
+            </p>
+          </div>
+          <p>Concretely, the three exits are:</p>
+          <div class="defs">
+            <table>
+              <tr><th>ACTIVE</th><td><code>voidAbandonedSession</code> after <code>session_active_timeout_blocks</code> — someone may void a session nobody is playing.</td></tr>
+              <tr><th>RESULT_PENDING</th><td>After <code>active_deadline_height</code>, anyone may escalate to DISPUTED.</td></tr>
+              <tr><th>DISPUTED</th><td>Permissionless adjudication after the dispute deadline; failing that, a no-engine refund after <code>dispute_refund_height</code>.</td></tr>
+            </table>
+          </div>
+          <p>
+            The general lesson, from the incident that created this rule: in an
+            escrow system the state diagram must be read as a
+            <em>liveness</em> diagram. A state with no outgoing timed edge is a
+            fund-loss bug even when no code path is wrong.
+          </p>
+
+          <h2 id="cooperative">Cooperative settlement</h2>
+          <p>
+            The happy path is <code>SubmitSessionResult</code> from both
+            seats. When the two submissions agree, <code>settlePot</code>
+            releases escrow — paying each seat its final chip stack, with the
+            relay rake deducted — and the session becomes
+            <code>SETTLED</code>.
+          </p>
+          <p>
+            Conservation (<code>payA + payB + fees == pot</code>) is asserted
+            inside the keeper, and a bank-transfer failure rolls back the
+            entire settlement rather than recording a verdict whose money
+            never moved. The same conservation law holds on the dispute path:
+            <code>player_a_amount + player_b_amount == 2 × stake</code>, with
+            the dispute fee taken <em>from the at-fault side's share</em>,
+            never added to the pot.
+          </p>
+
+          <h2 id="escalation">Escalation: three messages, order matters</h2>
+          <p>
+            When cooperation fails, a dispute is three on-chain messages and
+            they cannot be reordered:
+          </p>
+          <ol class="pipeline">
+            <li>
+              <b><code>MsgSubmitSessionEvidence</code></b>
+              <span>
+                Pins the signed message history on chain. The session turns
+                DISPUTED, escrow is protected, and
+                <code>dispute_deadline_height</code> is stamped.
+              </span>
+            </li>
+            <li>
+              <b><code>MsgSubmitSessionSecret</code></b>
+              <span>
+                Reveals the <em>hand's</em> session scalar (not the chain
+                key). The chain only accepts it after DISPUTED, so nobody can
+                leak a live game early. A seat that never reveals is scored as
+                forfeiting the whole escrow — so <strong>every client must
+                reveal before requesting adjudication</strong>.
+              </span>
+            </li>
+            <li>
+              <b><code>MsgAdjudicateSession</code></b>
+              <span>
+                Runs the engine and pays out. Either party may send it any
+                time; after the dispute deadline <em>anyone</em> may
+                (permissionless crank, so a lost-connection pair cannot lock
+                escrow forever). With no evidence at all the chain refuses to
+                adjudicate until the deadline, after which it becomes a
+                plain refund.
+              </span>
+            </li>
+          </ol>
+
+          <p>
+            Every submission path must read back its DeliverTx and know what a
+            rejection means: sync-broadcast code 0 only covers CheckTx. The
+            failure taxonomy lives in <code>x/pokerchain/types/tx_failure.go</code>
+            with mirrored copies in C++ (<code>chain_tx_outcome.hpp</code>)
+            and TypeScript (<code>@bitpoker/poker-session/tx-failure</code>).
+            <strong>Read the code together with its codespace</strong> —
+            pokerchain's code 11 is not the SDK's out-of-gas.
+          </p>
+
+          <h2 id="params">Governance parameters</h2>
+          <p>
+            Bounds are governance-controlled
+            (<code>x/pokerchain/types/params.go</code>). Current defaults:
+          </p>
+          <div class="defs">
+            <table>
+              <tr><th>result_timeout_blocks</th><td>20 — how long a single submitted result waits for the peer's matching result.</td></tr>
+              <tr><th>dispute_timeout_blocks</th><td>1440 (~2 h at 5 s blocks) — after which <em>anyone</em> may crank adjudication. It used to be 50 blocks, which was not a window but a formality: a loser forced a dispute 25 blocks after the winner had submitted and gone away for the evening.</td></tr>
+              <tr><th>dispute_response_blocks</th><td>720 (~1 h) — the ADR-010 evidence/secret response window.</td></tr>
+              <tr><th>dispute_refund_timeout_blocks</th><td>14400 (~20 h) past the dispute deadline — the final no-engine exit. Mandatory: disabling it would make permanently-locked escrow a valid configuration again.</td></tr>
+              <tr><th>session_active_timeout_blocks</th><td>10000 (~14 h) — backstop for sessions that never play.</td></tr>
+              <tr><th>intent_timeout_blocks</th><td>720 (~1 h) — how long a pending intent stays matchable.</td></tr>
+              <tr><th>dispute_fee_bps</th><td>500 (5%) — the ADR-004 fee charged to the at-fault side only. The honest note in the ADR: the number has no quantitative justification; it is governance awaiting data.</td></tr>
+              <tr><th>relay_fee_flat / _bps / _cap</th><td>0 — <em>ceilings</em> on relay self-quoted pricing (ADR-007 P3), not the price itself.</td></tr>
+              <tr><th>relay_min_bond</th><td>100 000 000 uchip (100 CHIP) — the Sybil price of a relay identity.</td></tr>
+              <tr><th>relay_claim_window_blocks / relay_answer_timeout_blocks</th><td>0 (off) — the endpoint-answer window arithmetic of ADR-007 P1.</td></tr>
+              <tr><th>intent_congestion_*</th><td>0 — ADR-012's congestion deposit ships off until governance opts in.</td></tr>
+            </table>
+          </div>
+
+          <div class="callout warn">
+            <p>
+              <strong>Changing a binary is not upgrading the chain.</strong>
+              State migrations only run when a governance-planned, registered
+              upgrade handler reaches its height. Swapping a binary in place
+              gives you new code reading old state with
+              <em>no symptoms</em> — derived indexes self-heal lazily, but
+              params do not. On poker-milestone2-test this killed the entire
+              dispute path (<code>dispute_refund_timeout_blocks</code> stuck
+              at 0 while <code>markSessionDisputed</code> is the only entry
+              to DISPUTED). After any upgrade, check
+              <code>/cosmos/upgrade/v1beta1/module_versions</code> — the
+              version string alone will not show it.
+            </p>
+          </div>
+
+          <h2 id="gas">The gas table: one source of truth</h2>
+          <p>
+            How much gas a chain message costs has exactly one source:
+            <code>x/pokerchain/types/gas_bounds.go</code>, pinned by
+            <code>keeper/gas_bounds_test.go</code> which runs every message
+            through the most expensive state it can encounter. Every client's
+            numbers are <em>generated</em> from it
+            (<code>tools/gen-gas-table.py</code> →
+            <code>chain_gas_bounds.generated.hpp</code> and
+            <code>gas-bounds.generated.ts</code> ×2; relayd is in the same Go
+            module and calls <code>types.GasBoundFor</code> directly).
+          </p>
+          <p>
+            The interesting entry is evidence: a single shuffle message is
+            ~16 KB of stack plus NIZK proof, so
+            <code>MsgSubmitSessionEvidence</code> is
+            <code>400 000 + 60 × payload_bytes</code> — the only message
+            whose cost is dominated by its own payload. And
+            <code>MsgAdjudicateSession</code> now budgets the engine's own
+            work from the counters the engine returns
+            (<code>signature_verifications</code>,
+            <code>shuffle_proofs_verified</code>) — before that, session 101
+            died at 1 603 147 gas against a 500 000 bound.
+          </p>
+          <p class="note">
+            Never hand-write a gas constant. Five uncoordinated copies of one
+            number once left a session's escrow locked for tens of thousands
+            of blocks (ADR-008).
+          </p>
+
+          <p class="note">
+            Source: <code>pokerchain/x/pokerchain/keeper/</code>
+            (matchmaking, escrow, settlement, escalation),
+            <code>x/pokerchain/types/</code> (params, gas bounds,
+            tx_failure, game_type), whitepaper §6, ADR-004, ADR-008,
+            ADR-010, ADR-012.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="adjudication.html">Next: adjudication →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="operations.html">Operations</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

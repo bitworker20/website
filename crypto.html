@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cryptography — BitPoker internal engineering reference</title>
+    <meta name="description" content="FourQ, joint keys, the Barnett–Smart deck, the Neff shuffle NIZK, per-card reveal shares, and the signed message chain.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html" aria-current="page">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Plane 1 · the deck</p>
+          <h1>Mental poker on FourQ.</h1>
+          <p class="lede">
+            Every card in play is an elliptic-curve ciphertext that neither
+            player can open alone. This page is the crypto: how a card is
+            represented, how two people shuffle a deck neither can see, how a
+            single card gets revealed without revealing the rest, and how every
+            protocol message signs itself into evidence.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#cards">Cards and joint keys</a></li>
+            <li><a href="#session-keys">Session identity</a></li>
+            <li><a href="#shuffle">The shuffle</a></li>
+            <li><a href="#reveal">Revealing a card</a></li>
+            <li><a href="#auth">Message authentication</a></li>
+            <li><a href="#rng">The RNG problem</a></li>
+            <li><a href="#why">Why these choices</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="cards">Cards and joint keys</h2>
+          <p>
+            Each of the 52 cards is a point on the FourQ curve. A
+            <strong>stack</strong> is an ordered vector of ElGamal-style
+            ciphertext pairs under a <strong>combined public key</strong>
+            formed by adding the two players' session public key points:
+          </p>
+
+          <div class="codeblock">
+            <span class="code-caption">the whole trick, in one line</span>
+            <code>P_comb = P_A + P_B          (point addition on FourQ)
+
+card_i  = Enc(P_comb, card_point_i)   — neither sk_A nor sk_B alone decrypts
+sk_A + sk_B together  →  the card point  →  face value via the stack-zero table</code>
+          </div>
+
+          <p>
+            This is the Barnett–Smart mental-poker construction. The property
+            the whole system leans on is that the combined key is a
+            <em>sum</em>: it is symmetric in the two players, so neither is a
+            "server" and neither is privileged. Both key shares are needed to
+            open anything, and each share is released only for the specific
+            card the protocol says may be seen.
+          </p>
+
+          <h2 id="session-keys">Session identity is not chain identity</h2>
+          <p>
+            A player's in-game identity is a <code>FiatShamirSecretKey</code>
+            — a FourQ scalar plus its derived 96-byte public commitment
+            (<code>publicKey ‖ commitment ‖ random</code>). This is a
+            <strong>per-session game key, entirely separate from the chain
+            account key</strong>.
+          </p>
+          <p>
+            The separation is what makes the dispute path survivable.
+            Revealing the session secret key after a hand exposes that hand's
+            cards — which are being adjudicated anyway — and nothing else.
+            Funds are never at risk from a reveal, because funds are controlled
+            by the chain key and the reveal is of a different key entirely.
+          </p>
+          <p>
+            The 96-byte public key is committed on chain in the player's
+            <code>GameIntent</code> <em>before any cards exist</em>. That is
+            what makes the later revelation checkable: the adjudication engine
+            verifies
+            <code>session_secret_key · G == the on-chain public key point</code>
+            before it believes anything a disputing party submits. A player
+            cannot reveal "a" key that happens to decrypt to favourable cards;
+            it must reveal <em>the</em> key they committed to.
+          </p>
+
+          <h2 id="shuffle">The shuffle</h2>
+          <p>
+            Shuffling happens exactly twice per hand, once by each player, in
+            sequence:
+          </p>
+          <ol class="pipeline">
+            <li>
+              <b>Player A shuffles</b>
+              <span>
+                Takes the canonical initial stack S₀, applies a secret
+                permutation π and re-encrypts every card with fresh
+                randomness rₓ under the combined key, producing stack S₁ plus
+                a NIZK proof P₁.
+              </span>
+            </li>
+            <li>
+              <b>Player B verifies, then shuffles</b>
+              <span>
+                Verifies P₁ against (S₀ → S₁), then applies its own π′ and
+                rₓ′, producing S₂ and P₂. <strong>S₂ is the deck the hand is
+                played from.</strong>
+              </span>
+            </li>
+          </ol>
+
+          <p>
+            The proof
+            (<code>NeffVerifibleMixing::ProveStack</code> /
+            <code>VerifyStack</code>) establishes that the output stack is a
+            permutation-and-re-encryption of the input stack
+            <strong>without revealing which permutation</strong>.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>Order-independence is load-bearing, not incidental.</strong>
+              Because the combined key is the <em>sum</em> of the two public
+              key points, it does not matter who shuffles first, and
+              verification does not depend on shuffle order. The adjudication
+              engine relies on exactly this property when it reconstructs the
+              shuffle chain from evidence that may be partial — it can verify
+              the steps it has without needing to know which player's turn it
+              was supposed to be.
+            </p>
+          </div>
+
+          <h3>The security argument, stated small</h3>
+          <p>
+            Two claims, both reductions:
+          </p>
+          <ul>
+            <li>
+              For the deck to be <strong>biased</strong>, a player would have
+              to produce a shuffle that is <em>not</em> a
+              permutation-and-re-encryption and still pass the NIZK.
+            </li>
+            <li>
+              For a card to be <strong>read early</strong>, an adversary would
+              need both key shares — and the protocol releases only one, for
+              only the card being legitimately shown.
+            </li>
+          </ul>
+          <p>
+            Note what is <em>not</em> claimed: that a player cannot learn
+            something from the ciphertexts they themselves produced. They
+            know their own permutation. What they cannot do is undo the other
+            player's, and that is the whole requirement.
+          </p>
+
+          <h2 id="reveal">Revealing a card</h2>
+          <p>
+            To let the opponent see card <em>i</em>, a player emits a
+            <code>FiatShamirCardkey</code> — a per-card decryption share with
+            an attached proof that the share was correctly derived from the
+            player's committed public key and that specific ciphertext.
+          </p>
+          <ol class="pipeline">
+            <li>
+              <b>Validate before applying</b>
+              <span>
+                The receiver validates the share against the sender's public
+                key <em>before</em> using it. An invalid share is a hard
+                cryptographic fault, not a retry — see
+                <code>revealMyOpenCards</code>, where a failed
+                <code>cardkey.validate()</code> fails the hand.
+              </span>
+            </li>
+            <li>
+              <b>Combine and map</b>
+              <span>
+                Combining one's own share with the peer's yields the plaintext
+                card point, which maps back to a face value via the canonical
+                stack-zero table.
+              </span>
+            </li>
+          </ol>
+
+          <h2 id="auth">Message authentication: the history is the evidence</h2>
+          <p>
+            Every protocol message (<code>MsgMove</code>) carries a
+            <code>MsgHeader</code> with a session id, a message id, the
+            previous message id, type flags, and a
+            <strong>SchnorrQ signature over the whole serialised message with
+            the signature field zeroed</strong>. Signing uses the session key,
+            not the chain key. Two properties follow, and the dispute system is
+            built on both:
+          </p>
+          <ul>
+            <li>
+              The message history is a <strong>signed, hash-linked
+              chain</strong>. Neither party can later present a rewritten
+              history: the adjudicator attributes every action to whichever
+              seat's session key signed it, and uses <em>that</em> attribution
+              — not the submitter's claims — to enforce turn order.
+            </li>
+            <li>
+              Evidence is <strong>self-authenticating</strong>. A player
+              submits <em>the opponent's own signed messages</em> as evidence;
+              the opponent cannot repudiate them.
+            </li>
+          </ul>
+
+          <div class="codeblock">
+            <span class="code-caption">message id structure — cheap ordering, duplicate detection and hand-boundary checks with no extra state</span>
+            <code>message_id = (hand_id &lt;&lt; 16) | round_id</code>
+          </div>
+
+          <h2 id="rng">The RNG problem</h2>
+          <p>
+            One subtlety with large consequences. The normal decryption helper
+            path draws randomness internally. The adjudication engine must
+            <strong>never</strong> draw randomness — any non-reproducible
+            output inside consensus is a fork, not a bug — so it decrypts by a
+            mathematically equivalent but RNG-free route: direct
+            elliptic-curve point subtraction using the two known session
+            secret keys. Same result, zero entropy consumed.
+          </p>
+          <p>
+            This is not a micro-optimisation. It is the reason the same
+            verification code can run in a live client (where randomness is
+            fine and expected) and inside a validator (where it is fatal), and
+            it is enforced at runtime rather than by convention — see
+            <a href="adjudication.html#guard">the three-layer determinism
+            guard</a>.
+          </p>
+
+          <h2 id="why">Why these choices</h2>
+          <div class="defs">
+            <table>
+              <tr>
+                <th>FourQ, not a standard curve</th>
+                <td>
+                  Mental poker is point-multiply-heavy: 52 cards × 2 shuffles
+                  × re-encryption, plus NIZK verification, all in the
+                  interactive path where latency is felt. FourQ is chosen for
+                  speed at that specific workload. The cost is that every
+                  determinism question has to be re-answered per architecture,
+                  because it is not a library everyone has built for arm64
+                  consensus before.
+                </td>
+              </tr>
+              <tr>
+                <th>Barnett–Smart, not MPC</th>
+                <td>
+                  General secure multi-party computation would give the same
+                  property with a stronger guarantee and roughly two orders of
+                  magnitude more work per card. The two-party structure of
+                  heads-up poker makes the ElGamal-sum construction sufficient,
+                  and it is auditable by a person rather than by a proof
+                  assistant.
+                </td>
+              </tr>
+              <tr>
+                <th>Neff-style NIZK</th>
+                <td>
+                  A shuffle without a proof is a player choosing the deck.
+                  Neff's construction gives permutation-and-re-encryption
+                  proofs that verify fast and, critically here, verify
+                  order-independently — which the partial-evidence reconstruction
+                  in the adjudicator needs.
+                </td>
+              </tr>
+              <tr>
+                <th>SchnorrQ over the session key</th>
+                <td>
+                  Signing every message with the chain key would put the
+                  player's wallet in the hot path of a latency-sensitive
+                  protocol and make every message a broadcast-candidate. The
+                  session key gives the same non-repudiation for evidence
+                  purposes and stays off the wallet.
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <p class="note">
+            Source: <code>bitpoker/include/core/</code>,
+            <code>bitpoker/src/core/</code> (card/stack types, shuffle prove &amp;
+            verify, cardkey, SchnorrQ), and the whitepaper §3. The security
+            argument above is deliberately informal — the reductions are
+            standard for this construction; what is specific to BitPoker is
+            how the pieces are wired to the dispute path.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="protocol.html">Next: the game protocol →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

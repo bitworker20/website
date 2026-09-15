@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Operations — BitPoker internal engineering reference</title>
+    <meta name="description" content="The verification matrix, clients and consumer boundaries, coordinated upgrades, and how each component is built, shipped and run.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html" aria-current="page">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Building, shipping, running</p>
+          <h1>Operations: how we know it works.</h1>
+          <p class="lede">
+            Three green unit suites prove three components work in isolation
+            and say very little about the seam between them. Everything on
+            this page exists because of that sentence — the verification
+            matrix, the golden vectors, the upgrade gates, and the rule that
+            a failure you cannot reproduce on demand will be discovered by
+            users with money on the table.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#matrix">The verification matrix</a></li>
+            <li><a href="#clients">Clients &amp; consumer boundaries</a></li>
+            <li><a href="#wasm">The WASM staging trap</a></li>
+            <li><a href="#upgrades">Coordinated upgrades</a></li>
+            <li><a href="#packaging">Packaging</a></li>
+            <li><a href="#commands">Command reference</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="matrix">The verification matrix</h2>
+          <div class="verify">
+            <table>
+              <tr>
+                <th>C++ unit tests</th>
+                <td>~491 tests across core crypto, protocol, games, chain, relay, adjudicator, client, robot. <code>make test</code>.</td>
+              </tr>
+              <tr>
+                <th>Go unit tests</th>
+                <td>46 test files covering keeper, params, genesis, relay daemon, protocol. <code>cd pokerchain &amp;&amp; make test</code>.</td>
+              </tr>
+              <tr>
+                <th>Determinism gate</th>
+                <td>Frozen 8-case corpus replayed on x86_64 + arm64; digests diffed against committed goldens.</td>
+              </tr>
+              <tr>
+                <th>Cross-language golden vectors</th>
+                <td>Wherever the same bytes must be produced by C++, Go and JavaScript — relay-id derivation, ECIES endpoint blobs, ClientHello signing — the contract is pinned by a vector one implementation generated and the others verify. Three implementations that each pass their own tests will otherwise drift, and the drift only appears in production.</td>
+              </tr>
+              <tr>
+                <th>End-to-end matrix</th>
+                <td>18 TH/ZJH scenarios against a live chain + relay + two clients, with per-hand settlement audits reconciling gross, rake and balances.</td>
+              </tr>
+              <tr>
+                <th>Interop e2e</th>
+                <td>WASM peer vs native peer plays three hands — the second hand is what proves the two client classes haven't forked on the rules. <code>bitpoker/test/interop/run_interop_e2e.sh</code>, <code>GAME=TH|ZJH|O8</code>.</td>
+              </tr>
+              <tr>
+                <th>Live testnet</th>
+                <td>Full dispute chain verified on chain: silence detection → reconnect → resync → evidence → DISPUTED → adjudicate → engine verdict → escrow released.</td>
+              </tr>
+              <tr>
+                <th>Upgrade drill</th>
+                <td><code>make upgrade-drill</code> re-runs a real proposal against a real HTTPS release source, crosses the height, and exercises relay rollback — now wired into CI by path trigger + weekly, so it no longer depends on someone remembering.</td>
+              </tr>
+            </table>
+          </div>
+
+          <h2 id="clients">Clients and consumer boundaries</h2>
+          <p>
+            One core, five front ends, all driving the same session logic —
+            and the boundary each one crosses is different, which is why the
+            boundary tests matter more than the client tests.
+          </p>
+          <ul class="client-list">
+            <li><b>CLI</b> (<code>app/main.cpp</code>) — a thin REPL over <code>bitpoker_client</code>; the development reference.</li>
+            <li><b>Qt desktop</b> — five screens with an animated felt table for TH and ZJH.</li>
+            <li><b>Android</b> — Qt/QML mobile build.</li>
+            <li><b>TUI</b> (<code>bitpoker-tui</code>) — terminal wallet + table with an intent watcher that auto-joins matched sessions; the usual host for unattended play.</li>
+            <li><b>Browser</b> — the WASM path: <code>gamecore.wasm</code> via embind with JavaScript driving the session, behind the shared headless layer <code>@bitpoker/poker-session</code> (relay transport, gamecore worker, hand state machine, recovery judgement, fee discovery). The browser path never links the asio transport or the wallet layer — each front end injects its own signing stack.</li>
+          </ul>
+          <p>
+            Two further components share the same core: a <strong>dispatcher</strong>
+            that routes intents to worker clients, and a <strong>robot
+            player</strong> — a personality-driven bot for TH and ZJH built on a
+            sans-IO <code>DecisionView</code> seam so the brain is testable
+            without a network.
+          </p>
+
+          <h2 id="wasm">The WASM staging trap</h2>
+          <div class="callout warn">
+            <p>
+              <strong>The <code>gamecore.wasm</code> the browsers load is a
+              committed binary. If you change gamecore source and forget to
+              rebuild and commit it, nothing fails to build.</strong> The
+              browser plays by the old rules, the native client by the new
+              ones; opening stacks match so the first hand agrees, and the
+              <em>second</em> hand forks — one side
+              <code>session aborted mid-play</code>, the other stuck at
+              showdown, escrow still locked on chain.
+            </p>
+            <p>
+              The gate: <code>make wasm-stage</code> (compile + copy + stamp
+              source hash + sync the keplr-vendored copy) and
+              <code>make wasm-check</code>, a pre-build gate on
+              <code>make webapp</code> / <code>make extension</code>.
+              <code>tools/sync-poker-session.sh --check</code> keeps the
+              vendored copy from drifting.
+            </p>
+          </div>
+
+          <h2 id="upgrades">Coordinated upgrades</h2>
+          <p>
+            <code>pokerchaind</code> and <code>poker-relayd</code> ship in
+            one signed manifest but <strong>never switch at the same
+            time</strong>: the upgrader only pre-stages chain binaries via
+            <code>cosmovisor add-upgrade</code>, Cosmovisor cuts the chain at
+            the governance-selected height, and the relay switches only
+            <em>after</em> locally-synced nodes report the plan applied.
+            Without that order, a new relay protocol runs against an old
+            chain.
+          </p>
+          <p>Four invariants, each corresponding to a network-wide failure:</p>
+          <ul>
+            <li>
+              <strong>A signed release must be a cgo adjudicator build.</strong>
+              A pure build returns <code>ErrAdjudicationUnavailable</code>
+              for every adjudication; auto-pushing one to all validators
+              locks every disputed escrow forever. Three guards enforce it
+              (no Makefile target produces a pure node; a hand-built pure
+              binary refuses to <code>start</code>; the packager reads
+              <code>go version -m</code> tags and the ArchiveHash stamp).
+            </li>
+            <li>
+              <strong>The chain plan in the manifest must have a registered
+              handler</strong> in <code>app/upgrades</code> (plus declared
+              <code>StoreUpgrades</code> for store add/remove). A missing
+              registration is a network-wide halt at the planned height; the
+              host re-verifies live with
+              <code>pokerchaind upgrades list --json</code> before staging.
+            </li>
+            <li>
+              <strong>Relay versions must be comparable semver</strong>, all
+              derived from one place (<code>tools/version.sh</code>):
+              <code>0.4.0</code> on a tag, <code>0.4.0-dev.N</code> after.
+              Build numbers go only in the prerelease field — a four-segment
+              <code>0.4.0.25</code> is not semver and gets rejected, and
+              <code>0.4.0+25</code> is legal but, per spec, never compares,
+              so the upgrade never fires and never errors.
+            </li>
+            <li>
+              <strong>The relay protocol number is raised in two releases.</strong>
+              First ship a relay that serves N+1 while still accepting N,
+              plus new clients; only once clients have actually spread does a
+              second release raise <code>relay.MinProtocolVersion</code>.
+              Raising the minimum is the one action that cuts old clients
+              off.
+            </li>
+          </ul>
+
+          <p>
+            Draining is not "refuse everything" — it is "accept no new
+            sessions": <em>in-progress sessions can still reconnect</em>
+            (refusing a reconnect locks two players and their escrow out
+            forever, and the drain never finishes). Chain state flips to
+            DRAINING so matchmaking stops assigning,
+            <code>/admin/resume</code> is the only exit that doesn't kill
+            live sessions, and the fleet staggers deterministically by
+            <code>hash(relay_id)</code> inside the window — otherwise every
+            relay drains in the same timer tick.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>Swapping a binary is not an upgrade.</strong> Module
+              state migrations only run at a governance-planned, registered
+              handler's height. An in-place binary swap gives you new code
+              reading old state with no symptoms — derived indexes
+              self-heal lazily, params do not. After upgrading, check
+              <code>/cosmos/upgrade/v1beta1/module_versions</code>; the
+              version string alone will not show it.
+            </p>
+          </div>
+
+          <h2 id="packaging">Packaging</h2>
+          <p>
+            <code>make deb</code> produces seven packages (node / relay /
+            upgrader / faucet / cli carry binaries by architecture; common
+            and node-config are <code>arch: all</code>).
+            <strong>Packages install software, not state</strong>: genesis,
+            validator keys, relay node keys, keyrings and tomls are never
+            touched (not even on purge), and nothing starts after install —
+            a node without a genesis restart-storms, and an
+            <code>auto-register</code> relay starts by locking a bond;
+            neither is the package manager's call.
+          </p>
+          <p>
+            The dependency rule that matters: <code>pokerchaind</code> is
+            not pure Go (cgo carries the C++ adjudication engine), and the
+            library requirement <strong>cannot be written as
+            <code>Depends</code></strong> — library package names carry
+            sonames that differ per distro, so the package would fail to
+            install on a host that can run it. Only the three names that are
+            identical on every Debian/Ubuntu (<code>libc6</code>,
+            <code>libstdc++6</code>, <code>libgcc-s1</code>) stay in
+            <code>Depends</code>; the rest go to <code>Recommends</code>,
+            and the real requirement is checked by the postinst with
+            <code>ldd</code> against the binary, naming the missing soname
+            and failing the install.
+          </p>
+
+          <h2 id="commands">Command reference</h2>
+          <div class="codeblock">
+            <span class="code-caption">the gates, from the monorepo root</span>
+            <code>make test                          # C++ unit tests (incl. adjudicator goldens)
+cd pokerchain &amp;&amp; make test           # chain-side keeper tests
+cd pokerchain &amp;&amp; make adjudicator-check   # cgo engine vs .a digest (beats the Go build cache)
+cd webapp &amp;&amp; npm test                # site + @bitpoker/poker-session vitest
+tools/sync-poker-session.sh --check  # vendored poker-session not drifted
+make gas-table-check                 # client gas bounds same source as the chain's table
+make wasm-check                      # committed gamecore.wasm same age as gamecore source
+make upgrader-check                  # upgrader can read AND exec the binaries it upgrades
+make deb-check                       # seven packages: units match contrib/systemd, no /var/lib owns, no auto-start
+make hooks                           # pre-push hook: the three silent-failure gates in one pass
+
+bitpoker/test/interop/run_interop_e2e.sh                 # wasm vs native, three hands
+GAME=O8 bitpoker/test/interop/run_interop_e2e.sh         # same, Omaha
+bitpoker/test/interop/run_chain_checkpoint_e2e.sh        # ADR-010: two hands on a real chain, then drop
+
+CHROME=&lt;chrome-for-testing-136&gt; EXT_DIR=&lt;ext&gt;/dist \
+GAME=ZJH MODE=dispute ADJUDICATE=1 \
+  bitpoker/test/interop/run_chain_e2e.sh                 # full keplr-vs-native chain e2e with verdict assertion</code>
+          </div>
+
+          <p class="note">
+            Source: <code>Makefile</code>, <code>packaging/</code>,
+            <code>pokerchain/docs/CHAIN_UPGRADE_RUNBOOK.md</code>,
+            <code>pokerchain/docs/RELAY_UPGRADES.md</code>,
+            <code>deploy/upgrade-e2e/</code>, ADR-009.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="lessons.html">Next: lessons &amp; open problems →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="overview.html">Back to overview</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

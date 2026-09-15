@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Game protocol — BitPoker internal engineering reference</title>
+    <meta name="description" content="Hand lifecycle over C++20 coroutines, sans-IO state machines, the shared community-card core, the settlement transcript, resync.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html" aria-current="page">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Plane 2 · the game</p>
+          <h1>The protocol: coroutines in, verdicts out.</h1>
+          <p class="lede">
+            A hand of poker, expressed as a C++20 coroutine pipeline over
+            Boost.Asio, with the rules themselves kept in pure sans-IO
+            functions so that the referee and the table run literally the same
+            code. This page is the session layer: lifecycle, state machines,
+            the shared community-card core, and the transcript both players
+            sign.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#lifecycle">Hand lifecycle</a></li>
+            <li><a href="#sansio">Sans-IO state machines</a></li>
+            <li><a href="#community">The community-card core</a></li>
+            <li><a href="#games">The three games</a></li>
+            <li><a href="#transcript">Settlement transcript</a></li>
+            <li><a href="#resync">Reconnection &amp; resync</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="lifecycle">Hand lifecycle</h2>
+          <p>
+            The base framework (<code>P2PPokerGameBase</code> /
+            <code>P2PPokerHandBase</code>) drives every game type through the
+            same coroutine pipeline, so asynchronous network code reads like
+            straight-line logic:
+          </p>
+
+          <div class="codeblock">
+            <span class="code-caption">p2p_poker_base — the whole skeleton</span>
+            <code>runGame
+  └─ per hand: runHand
+       ├─ exchangeShuffleStack   (two shuffles + two NIZK verifications)
+       ├─ runGameLogic           ← game-specific; the only virtual step
+       └─ settleHand             (signed settlement transcript)</code>
+          </div>
+
+          <p>
+            Concrete games implement <code>runGameLogic()</code> and
+            <code>getWinAmount()</code>. The game loop checks
+            <code>getContinueHand()</code> after each hand and calls
+            <code>settleGame()</code> when the session ends. Everything above
+            the virtual step is shared, tested once, and identical across games
+            — which matters because the adjudicator walks the same shape.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>A game the adjudication engine cannot replay has no
+              business escrowing money.</strong> The chain validates
+              <code>game_type</code> at intent time against the list of games
+              the engine understands (<code>TH</code>, <code>ZJH</code>,
+              <code>O8</code> — one list, in
+              <code>pokerchain/x/pokerchain/types/game_type.go</code>) rather
+              than discovering it at dispute time. When the CC toy game was
+              deleted, the reason was exactly this: the engine fell back to TH
+              for unknown types, so a CC dispute would have been silently
+              adjudicated as Texas Hold'em.
+            </p>
+          </div>
+
+          <h2 id="sansio">Sans-IO state machines</h2>
+          <p>
+            For every game the <em>rules</em> live in pure functions with no
+            I/O and no network concepts:
+          </p>
+
+          <div class="codeblock">
+            <span class="code-caption">heads-up hold'em, as the engine sees it</span>
+            <code>HeadsUpHoldemState        create_heads_up_holdem_hand(...);
+HeadsUpHoldemActionResult apply_heads_up_holdem_action(HeadsUpHoldemState&amp;, action);
+bool                      heads_up_holdem_hand_complete(const HeadsUpHoldemState&amp;);
+void                      settle_heads_up_holdem_showdown(HeadsUpHoldemState&amp;, int cmp);</code>
+          </div>
+
+          <p>
+            This is not merely tidy. <strong>The adjudication engine replays
+            disputes through the exact same functions the live game
+            uses.</strong> There is deliberately no second implementation of
+            "the rules, as understood by the referee" — the classic source of
+            arbitration systems that disagree with the game they arbitrate.
+            When the engine rules an action illegal, it is illegal by the same
+            code that would have rejected it at the table.
+          </p>
+          <p>
+            The practical rule when changing rules code: every change to
+            <code>apply_heads_up_holdem_action</code> or its equivalents is a
+            <strong>consensus-relevant change</strong>. It changes what verdict
+            the engine reaches for old evidence, so it requires an engine
+            version bump and a coordinated chain upgrade — not just a client
+            release.
+          </p>
+
+          <h2 id="community">The community-card core</h2>
+          <p>
+            Texas Hold'em and Omaha are the same code with two configurations
+            (ADR-011). Hand orchestration
+            (<code>community/community_hand_core.cpp</code>), the asio driver
+            (<code>community/community_game.cpp</code>), action codec
+            (<code>community/community_protocol.cpp</code>) and the
+            adjudication pipeline (<code>adjudicateCommunityPrepared</code>)
+            are all shared. A game contributes exactly one
+            <code>CommunityRules</code>:
+          </p>
+          <div class="defs">
+            <table>
+              <tr><th>hole card count</th><td>2 for TH, 4 for O8 — drives the seat layout, nothing else.</td></tr>
+              <tr><th>three wire tags</th><td>hole / board / showdown message tags per game.</td></tr>
+              <tr><th>showdown resolver</th><td>the ranking function: 7-choose-5 for TH, exactly-2-from-hole + 3-from-board (plus hi/lo split for O8).</td></tr>
+            </table>
+          </div>
+
+          <p>
+            The card-slot layout is defined in exactly one place —
+            <code>first [0, n)</code> / <code>second [n, 2n)</code> /
+            <code>board [2n, 2n+5)</code> — and live play, the wire codec and
+            on-chain adjudication all index from that same source. The
+            adjudicator therefore cannot index a card differently from the
+            game. Adding the next community-card game means filling in those
+            three hooks.
+          </p>
+
+          <div class="callout warn">
+            <p>
+              <strong><code>GameKind</code> has three values and adding a
+              fourth produces no compile error.</strong> The codebase used to
+              be full of <code>kind == TexasHoldem ? "TH" : "ZJH"</code>,
+              which would draw Omaha as Zhajinhua — three hole cards, no
+              board area. New code must go through
+              <code>include/common/decision_view.hpp</code>'s
+              <code>game_kind_code()</code> /
+              <code>is_community_card_game()</code>, or be an exhaustive
+              switch.
+            </p>
+          </div>
+
+          <h2 id="games">The three games</h2>
+          <div class="defs">
+            <table>
+              <tr>
+                <th>TH — heads-up Texas Hold'em</th>
+                <td>
+                  The primary game: preflop / flop / turn / river / showdown,
+                  check, call, bet, raise, fold and all-in, blinds derived
+                  from the effective stake, and a 7-choose-5 evaluator
+                  covering all ten hand ranks including the wheel straight and
+                  royal flush.
+                </td>
+              </tr>
+              <tr>
+                <th>O8 — Omaha Hi-Lo</th>
+                <td>
+                  Four hole cards, <em>exactly</em> 2 from hole + 3 from
+                  board, 8-or-better low hands split the pot. Betting is
+                  no-limit, not pot-limit: adding a pot-limit cap inside
+                  <code>apply_heads_up_holdem_action</code> would make
+                  Texas's every-hand consensus path depend on code Texas never
+                  executes (ADR-011 §2.3).
+                </td>
+              </tr>
+              <tr>
+                <th>ZJH — Zhajinhua</th>
+                <td>
+                  Three cards per player, blind-or-look betting,
+                  comparison-based showdown. The codec lives in
+                  <code>*_state</code> rather than a separate
+                  <code>*_protocol</code> file.
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <h2 id="transcript">The settlement transcript</h2>
+          <p>
+            At the end of a hand the two clients exchange a
+            <code>MsgSettle</code> carrying both seats' amounts, both
+            continue-flags, and <em>both</em> signatures. The transcript that
+            gets signed (<code>SettlementTranscriptContext</code>) binds:
+          </p>
+          <ul>
+            <li>a domain string and schema version;</li>
+            <li>the chain session id and the final stake;</li>
+            <li>both addresses and the winner / split outcome;</li>
+            <li>the hash of the final settle message; and</li>
+            <li>
+              critically, the <strong>relay fee raked on chain</strong>
+              together with the net per-seat amounts <em>after</em> that rake.
+            </li>
+          </ul>
+
+          <div class="callout">
+            <p>
+              <strong>That last binding is a lesson learned, not an obvious
+              design.</strong> If players sign the pre-rake game distribution,
+              they are signing something the chain will not actually pay, and
+              any later reconciliation is ambiguous. The transcript signs the
+              true on-chain payout. When you extend the transcript, extend it
+              to match what the keeper will actually move — never what the
+              game "would have" paid.
+            </p>
+          </div>
+
+          <h2 id="resync">Reconnection and resynchronisation</h2>
+          <p>
+            Frames carry a per-sender sequence number reused from the relay
+            frame header's <code>request_id</code>. On reconnect:
+          </p>
+          <ol class="pipeline">
+            <li>
+              <b>Client sends <code>SessionResume</code></b>
+              <span>with the highest sequence it received.</span>
+            </li>
+            <li>
+              <b>Peer retransmits everything newer</b>
+              <span>and replies with its own high-water mark, so the exchange
+              is symmetric.</span>
+            </li>
+            <li>
+              <b>Receivers deduplicate by sequence</b>
+              <span>so overlapping retransmission is harmless. A
+              <code>MSGTYPE_RESYNC</code> mid-hand resynchronisation lets an
+              interrupted hand continue rather than escalate.</span>
+            </li>
+          </ol>
+
+          <p>
+            The relay contributes two behaviours discovered to be necessary
+            the hard way: a reconnecting client with the same player id
+            <strong>displaces</strong> the half-open old connection
+            (otherwise the ghost holds the slot), and an overflowing outbound
+            queue <strong>disconnects the slow consumer</strong> rather than
+            silently dropping frames — a silently dropped frame
+            desynchronises the protocol in a way that looks exactly like
+            cheating.
+          </p>
+
+          <p class="note">
+            Source: <code>bitpoker/include/common/</code> +
+            <code>src/common/</code> (session layer, protocol state),
+            <code>bitpoker/include/community/</code> and the per-game
+            directories, <code>bitpoker/src/texasholdem/</code> etc.
+            Whitepaper §4. The transport half of this story continues on the
+            <a href="relay.html">relay page</a>.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="chain.html">Next: the chain →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lessons &amp; open problems — BitPoker internal engineering reference</title>
+    <meta name="description" content="What happened when the design met real networks: the disconnect that never disconnected, transactions that 'succeeded', and the gaps we still carry honestly.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html" aria-current="page">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">The part that was actually hard</p>
+          <h1>Scar tissue.</h1>
+          <p class="lede">
+            The Barnett–Smart construction and the shuffle proof are
+            textbook. What took real work is everything below — failures
+            that were invisible to unit tests, found only by end-to-end runs
+            against real networks, real gas limits and real CLI tools. Each
+            one is written here as symptom → strategy → the rule it left
+            behind, because most rules in this codebase are scar tissue and
+            knowing the scar stops you re-inflicting it.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#deadends">Sessions that could never end</a></li>
+            <li><a href="#neverdisconnects">The disconnect that never disconnects</a></li>
+            <li><a href="#empty">Empty evidence, and the tempting fix</a></li>
+            <li><a href="#slow">An opponent who may legitimately be slow</a></li>
+            <li><a href="#success">Transactions that "succeeded"</a></li>
+            <li><a href="#capability">Silent capability gaps</a></li>
+            <li><a href="#tooling">Tooling that lies</a></li>
+            <li><a href="#repro">Making disputes reproducible</a></li>
+            <li><a href="#open">Open problems</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="deadends">1. Sessions that could never end</h2>
+          <p>
+            <strong>Symptom.</strong> A live test run left three matched
+            sessions parked in <code>ACTIVE</code> forever, escrow locked.
+            <code>ClaimSessionTimeout</code> only accepted
+            <code>RESULT_PENDING</code>; becoming <code>ACTIVE</code> set no
+            deadline at all. If both clients crashed, never started, or
+            simply walked away, nothing on chain could ever move that
+            session.
+          </p>
+          <p>
+            <strong>Strategy.</strong> Treat "every state has a bounded
+            exit" as an invariant to be audited per state, not an emergent
+            property. <code>session_active_timeout_blocks</code> and the
+            unanswered-assignment void path close the two known dead ends,
+            and <code>escrow_liveness_test.go</code> walks the state enum so
+            a new state without an exit test fails the build.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>The rule:</strong> in an escrow system, read the state
+              diagram as a <em>liveness</em> diagram. A state with no
+              outgoing timed edge is a fund-loss bug even if no code path is
+              wrong.
+            </p>
+          </div>
+
+          <h2 id="neverdisconnects">2. The disconnect that never disconnects</h2>
+          <p>
+            <strong>Symptom.</strong> The single most damaging bug found. A
+            player's peer process was killed mid-shuffle; the survivor hung
+            for <strong>over ten minutes</strong> with no reconnect, no
+            evidence submission, nothing. The reason is structural: the
+            client's WebSocket connects to <em>the relay</em>, not to the
+            peer. When the peer's process dies, that connection stays
+            perfectly healthy — the relay answers pings normally. The
+            transport's idle timeout covers connection idleness, not
+            "connection fine, peer has stopped talking." The design
+            document's assumption that resync relies on the transport read
+            timeout to establish that the peer never returned was simply
+            false under relay transport: <strong>that timeout did not
+            exist.</strong>
+          </p>
+          <p>
+            The dispute pathway was, in other words, unreachable. Everything
+            downstream — adjudication, dispute fees, forfeit verdicts — had
+            been unit-tested against a gate no live game could ever open.
+          </p>
+          <p>
+            <strong>Strategy.</strong> <code>readPeerMessageBounded</code>
+            caps the wait on the <em>peer</em> specifically, using a budget
+            derived as <code>2 × action_timeout + 30</code> (default 150
+            s). Timeout is handled on the same path as a read failure:
+            reconnect → resync → escalate on chain. The resync handshake
+            read is bounded too, or the handshake hangs the same way.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>The budget's derivation matters more than its
+              value.</strong> It must be substantially larger than the
+              opponent's own action timeout — otherwise a slow but honest
+              opponent gets classified as absent and a real-money game is
+              escalated into a dispute. <em>Falsely escalating an honest
+              game is worse than waiting longer</em>, so the parameter is
+              derived from the action timeout rather than set independently,
+              making it impossible to configure the two into contradiction.
+            </p>
+          </div>
+          <p>
+            Result: ten-plus minutes of hanging became 60 s detection →
+            reconnect → bounded resync → on-chain escalation.
+          </p>
+
+          <h2 id="empty">3. Empty evidence, and the temptation to fix it on chain</h2>
+          <p>
+            <strong>Symptom.</strong> When the peer vanishes <em>very</em>
+            early — before the survivor has recorded any message at all —
+            the survivor's history is empty. The chain rejects empty
+            evidence, the follow-up secret is rejected too ("secrets are
+            only accepted for a disputed session"), and the session sits in
+            <code>ACTIVE</code> until the ~14 h backstop.
+          </p>
+          <p>
+            <strong>The tempting fix, and why it was rejected.</strong>
+            Relaxing the on-chain gate to accept "connection lost" evidence
+            with no history would let <em>either</em> party pull a live
+            session into <code>DISPUTED</code> with a content-free
+            submission. Empty history is not "undecidable" to the engine —
+            it is a <em>valid verdict</em>, <code>REFUND_UNDEALT</code>,
+            which refunds each side's on-chain <em>opening</em> chips.
+            Since sessions are multi-hand and the chain records the opening
+            stacks, a player several hands down could submit empty evidence,
+            immediately adjudicate, and <strong>erase their losses</strong>.
+            Plugging that would require further consensus rules — two
+            interlocking rules in consensus for a situation the client can
+            avoid entirely.
+          </p>
+          <p>
+            <strong>Strategy.</strong> Fix it in the client, leave the
+            consensus gate intact. If <code>collectMessageHistory()</code>
+            is empty, the client submits neither evidence nor secret — the
+            latter especially, since that transaction is certain to be
+            rejected while still publicly burning the session identity — and
+            marks the session <code>abandonedBeforePlay()</code>. The
+            session runner then drives the pre-existing <em>retreat</em>
+            path (split-pot abort result → result timeout → DISPUTED →
+            reveal → adjudicate), reaching a refund in about
+            <strong>six minutes instead of fourteen hours</strong>, using
+            only existing primitives and <strong>zero consensus
+            changes</strong>.
+          </p>
+          <p>
+            Placing this in the shared session runner rather than in each UI
+            was equally deliberate: unattended clients (the dispatcher
+            worker) have nobody to press a "retreat" button, and they are
+            precisely the ones most likely to face an opponent who never
+            arrives.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>The rule:</strong> resist fixing client problems by
+              adding rules to consensus. A client-side fix using existing
+              primitives is cheaper, reversible, and doesn't need a network
+              upgrade.
+            </p>
+          </div>
+
+          <h2 id="slow">4. Waiting for an opponent who may legitimately be slow</h2>
+          <p>
+            <strong>Symptom.</strong> If the peer dies before sending its
+            session hello, the survivor blocks forever in
+            <code>initSession</code> — worse than §2, since it never even
+            reaches "session failed."
+          </p>
+          <p>
+            <strong>Strategy, with an explicit trade-off.</strong> The §2
+            budget was <em>not</em> reused, because waiting for a hello is
+            also a <strong>legitimate recovery state</strong>: the protocol
+            supports both parties re-announcing to resume a session, and a
+            player may return much later. A flat 150 s would break "keep
+            the table open while my opponent reconnects." So the bound is
+            long and configurable — <code>peerHelloTimeoutSeconds</code>,
+            default <strong>1800 s</strong>, <code>0</code> meaning wait
+            forever — with a per-second countdown surfaced through the event
+            sink to every front end (Qt, mobile, TUI render it; the CLI
+            prints at 30 s intervals and every second for the last ten,
+            because per-second terminal output is noise). On expiry the
+            client does <em>not</em> retry the relay — that only re-spends
+            the same budget — but reuses the §3 conclusion: no messages
+            means no dispute, so go straight to the refund path. Verified
+            live end to end with the bound lowered to 60 s.
+          </p>
+
+          <h2 id="success">5. Transactions that "succeeded"</h2>
+          <p>
+            Three independent failure modes, all of which made the client
+            believe it had reached the chain when it had not:
+          </p>
+          <ul>
+            <li>
+              <strong>Gas that does not scale with payload.</strong>
+              Evidence carries an entire hand's message history; a single
+              shuffle message is ~16 KB. One real hand needed
+              <strong>732 070</strong> gas against a fixed 300 000 shared
+              by all game transactions — meaning <em>every real evidence
+              submission was guaranteed to fail</em>, and to fail
+              <strong>after</strong> <code>CheckTx</code> passed, so the
+              client saw success. Fixed by scaling:
+              <code>400 000 + 60 × payload_bytes</code>.
+            </li>
+            <li>
+              <strong><code>pokerchaind tx</code> exits 0 on rejection.</strong>
+              The CLI returns success even when the node rejects the
+              transaction, so code 32 (sequence mismatch) and code 11 (out
+              of gas) were both read as success. The submitter now parses
+              the response <code>code</code>, and retries sequence
+              mismatches with a bounded wait of 6 s — longer than one 5 s
+              block, because 2 s never once worked.
+            </li>
+            <li>
+              <strong>Broadcast accepted ≠ executed.</strong> Acceptance
+              into the mempool says nothing about inclusion or execution.
+              The submitter now polls <code>query tx &lt;hash&gt;</code> for
+              inclusion <em>and</em> <code>code == 0</code>. This
+              immediately surfaced two previously invisible classes of
+              failure: transactions silently dropped from the mempool (how
+              the secret submissions were being lost) and transactions
+              included but failing execution (the out-of-gas evidence).
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              <strong>The rule:</strong> treat every layer boundary as an
+              adversary that lies about success — exit codes, mempool
+              acceptance, and <code>CheckTx</code> are all <em>not</em>
+              proof of execution. Confirm at the layer that actually
+              matters, and size resources from payload rather than from a
+              constant.
+            </p>
+          </div>
+
+          <h2 id="capability">6. Silent capability gaps between client classes</h2>
+          <p>
+            <strong>Symptom.</strong> Relay rewards depended on every
+            client class implementing one optional thing: signing a reward
+            receipt. Clients that delegate signing to an external CLI keep
+            the key in a keyring, outside the process, and so
+            <strong>silently never sent one</strong>; the browser clients
+            never implemented sending at all. Either way the relay waited
+            forever for a second signature, its fee became unpayable to
+            anyone, and nothing anywhere said so.
+          </p>
+          <p>
+            The same class of bug appeared again on the retreat path: it had
+            only ever supported <em>native</em> signing, so clients that
+            sign via the external <code>pokerchaind</code> CLI — which hold
+            a key name and a keyring, not an unlocked keystore — failed
+            <strong>every</strong> recovery transaction with
+            <code>native signing requires an unlocked keystore</code>. The
+            visible "retreat" button in the UI had never worked for that
+            entire class of client. Only running the path for real revealed
+            it.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>The rule:</strong> when a capability is optional per
+              client class, its absence must be <em>reported</em>, not
+              skipped. A silently-skipped feature is indistinguishable from
+              a broken one and costs far more to diagnose. The durable fix
+              for the receipt case was to stop requiring the capability at
+              all, by paying from a fact the chain already had — see
+              <a href="relay.html#proof">settlement as the receipt</a>.
+            </p>
+          </div>
+
+          <h2 id="tooling">7. Tooling that lies</h2>
+          <ul>
+            <li>
+              <strong><code>cgo</code> stale archives.</strong> Go's build
+              cache does not hash C++ archive <em>contents</em>, so
+              validators kept linking a stale adjudicator. A deliberate
+              <code>ArchiveHash</code> ldflags cache-buster forces
+              relinking, and <code>make adjudicator-check</code> verifies
+              the engine and the <code>.a</code> digest agree.
+            </li>
+            <li>
+              <strong>A CLI descriptor that panicked every subcommand.</strong>
+              <code>autocli</code> permits exactly one optional positional
+              argument, and it must be last; adding three made
+              <code>pokerchaind</code> panic on <em>every</em> subcommand
+              including <code>init</code> — while <code>go test ./...</code>
+              stayed entirely green. Fixed by moving to flags, plus a
+              root-command guard test verified to catch the regression.
+            </li>
+            <li>
+              <strong>A rake charged on refunds.</strong> <code>REFUND</code>
+              verdicts were still taking a relay fee while three other void
+              paths were not — the same user-visible outcome was charged or
+              not purely by which code path reached it. Fees are now taken
+              only when the hand truly produced a result.
+            </li>
+          </ul>
+          <p>
+            Each of these was found by end-to-end runs, not unit tests. The
+            standing conclusion: three green unit suites prove three
+            components work in isolation and say very little about the seam
+            between them.
+          </p>
+
+          <h2 id="repro">8. Making disputes reproducible at all</h2>
+          <p>
+            <strong>Symptom.</strong> The dispute end-to-end scenario could
+            not be tested, because a scripted hand runs from shuffle to
+            settlement in about <strong>200 ms</strong> — there is no
+            wall-clock window in which to kill a peer. Attempts at 12 s,
+            4 s, 3 s and 1.2 s all landed after cooperative settlement.
+          </p>
+          <p>
+            <strong>Strategy: deterministic fault injection at protocol
+            granularity, not wall-clock.</strong>
+            <code>BITPOKER_FAULT_DROP_AFTER_FRAMES=n</code> makes a client
+            <code>_Exit</code> immediately <em>before</em> emitting frame
+            <em>n</em>, so failures can be placed at exact protocol
+            positions (frame 1 = announce, 2 = session hello, 3 = the
+            first gameplay frame; hence <code>n=3</code> is "handshake
+            complete, nothing shuffled"). Combined with seat lookup — seats
+            are assigned pseudo-randomly on chain, so injecting into "the
+            second client" hits the wrong seat roughly half the time — this
+            made the entire dispute pathway reproducible on demand.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>The rule:</strong> failure modes deserve at least as
+              much design as the happy path — and they must be reproducible
+              on demand, or they will only be discovered by users, with
+              money on the table.
+            </p>
+          </div>
+
+          <h2 id="open">Open problems</h2>
+          <p>
+            Stated plainly, because a reference that only lists strengths
+            is marketing.
+          </p>
+
+          <h3>Unilateral disputes without peer awareness <span class="badge open">open</span></h3>
+          <p>
+            A player may, mid-game, submit their genuine history as
+            evidence, pull the session into <code>DISPUTED</code>, and
+            reveal their own secret. An opponent not watching the chain will
+            be judged to have forfeited for failing to reveal, and can lose
+            the entire escrow. The intended fix — clients polling their own
+            session status during play and reacting immediately to
+            <code>DISPUTED</code> — is designed but not yet implemented.
+            <strong>This is the most significant known gap.</strong>
+          </p>
+
+          <h3>Settlement granularity <span class="badge wip">in progress</span></h3>
+          <p>
+            The chain records opening stacks and settles a session as a
+            whole; per-hand checkpointing is designed (ADR-010, milestone
+            M3) and partially built. Until it lands completely, "sit down
+            and play N hands" is constrained, and adjudication reasons
+            about a hand within a session rather than a running stack.
+          </p>
+
+          <h3>Bad-signature violations are not a verdict <span class="badge open">open</span></h3>
+          <p>
+            A history containing a non-participant's signature fails
+            preflight as <code>MALFORMED_REQUEST</code> rather than
+            producing a <code>VIOLATION_BAD_SIGNATURE</code> verdict,
+            because the on-chain model has no "accuser" field. Tampering
+            currently causes failure, not attributable loss.
+          </p>
+
+          <h3>Collusive "friendly" disputes <span class="badge open">open</span></h3>
+          <p>
+            Two colluding players can both decline to submit, producing a
+            <code>BOTH</code> refund and avoiding all fees. Whether this
+            warrants economic suppression is undecided.
+          </p>
+
+          <h3>The dispute fee is unmodelled <span class="badge open">open</span></h3>
+          <p>
+            The default <code>dispute_fee_bps</code> has no quantitative
+            justification (§7.4 of the whitepaper). It is governance
+            awaiting data.
+          </p>
+
+          <h3>Timeout policy is implicit <span class="badge open">open</span></h3>
+          <p>
+            When a hand times out mid-street but both players reveal, the
+            engine decrypts the full board and runs a complete 7-choose-5
+            showdown — "running it out" for cards never dealt in play. This
+            is a fairness-relevant policy choice currently documented only
+            in implementation comments; it deserves its own ADR.
+          </p>
+
+          <h3>Browser TLS <span class="badge open">open</span></h3>
+          <p>
+            Self-signed certificates with on-chain pinning work only for
+            native clients. Any relay serving browsers needs a real CA
+            certificate; ACME automation is designed but not implemented.
+          </p>
+
+          <h3>Volumetric DDoS <span class="badge open">open</span></h3>
+          <p>
+            Endpoint privacy raises the cost of discovery; it does not
+            address L3/L4 capacity attacks, whose only real answer is
+            network-layer budget.
+          </p>
+
+          <h3>Relay griefing <span class="badge open">open</span></h3>
+          <p>
+            A player who abandons a session mid-hand costs the relay the fee
+            for work it already did, because payment is tied to settlement.
+            The relay loses one flat fee and can deprioritise that player;
+            there is no on-chain consequence for the abandoner beyond the
+            dispute path they invoked.
+          </p>
+
+          <p class="note">
+            Source: whitepaper §9 and §12, ADR-003 through ADR-012,
+            <code>bitpoker/docs/ONCHAIN_ROADMAP.md</code>,
+            <code>bitpoker/docs/adjudicator/PROGRESS.md</code>.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="overview.html">Back to overview</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="operations.html">Operations</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

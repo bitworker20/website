@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Adjudication — BitPoker internal engineering reference</title>
+    <meta name="description" content="Deterministic in-consensus adjudication: the three-layer determinism guard, the six-stage pipeline, verdicts, fault attribution, triggers.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html" aria-current="page">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Plane 4 · the verdict</p>
+          <h1>Judging by recomputation, not arbitration.</h1>
+          <p class="lede">
+            Deciding who won a hand of poker is easy — the rules are
+            mechanical. The hard part is that in a dispute the chain holds
+            only what the parties submitted, and <em>every validator must
+            independently derive byte-identical results from that input</em>.
+            Any divergence is not a bug; it is a consensus fork that halts
+            the chain. This page is how that constraint is satisfied.
+          </p>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#why">Why determinism is the whole problem</a></li>
+            <li><a href="#guard">The three-layer guard</a></li>
+            <li><a href="#pipeline">The pipeline</a></li>
+            <li><a href="#verdicts">Verdicts, faults, fees</a></li>
+            <li><a href="#triggers">Who triggers what</a></li>
+            <li><a href="#version">Versioning &amp; upgrades</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="why">Why determinism is the whole problem</h2>
+          <p>
+            The "state transition function" here is an entire poker rules
+            engine plus elliptic-curve verification — orders of magnitude
+            more complex than a transfer or a delegation. The chosen
+            approach (ADR-003, "Scheme A") is to implement the engine
+            <strong>once</strong> in C++, expose it through a pure C ABI,
+            and link it into the validator binary via cgo, so every validator
+            executes the identical implementation.
+          </p>
+          <p>Two integration decisions guard the boundary:</p>
+          <ul>
+            <li>
+              The Go side is decoupled at a <code>[]byte → []byte</code>
+              interface. Without the <code>cgo_adjudicator</code> build tag
+              the adjudicator is <code>nil</code> and
+              <code>AdjudicateSession</code> returns
+              <code>ErrAdjudicationUnavailable</code> — a misconfigured
+              pure-Go node <strong>fails loudly instead of silently
+              returning a default verdict</strong>.
+            </li>
+            <li>
+              Every C ABI entry point is wrapped in a catch-all. A C++
+              exception unwinding into Go is undefined behaviour, and a crash
+              inside consensus halts the chain; exceptions are mapped to
+              deterministic status codes at the boundary.
+            </li>
+          </ul>
+
+          <h2 id="guard">The three-layer determinism guard</h2>
+
+          <h3>Layer 1 — runtime sentinel</h3>
+          <p>
+            The invariant: <em>the adjudication path must never consume
+            cryptographic randomness.</em> Shuffle <strong>proving</strong>
+            needs an RNG; shuffle <strong>verifying</strong> does not — but
+            both live in the same translation unit, so a compile-time split
+            is not available. Instead a <code>thread_local</code>
+            armed/disarmed flag with an RAII scope guard
+            (<code>DeterministicGuardScope</code>, nestable) is armed on
+            entry to adjudication, and every actual entropy source —
+            <code>generate_random_with_openssl&lt;T&gt;()</code>,
+            <code>RandomKey()</code>, <code>generateRandomIV()</code> —
+            calls <code>checkDeterministicGuard()</code> and
+            <strong>throws</strong> if armed. Non-reproducible output is
+            converted from a silent consensus hazard into a loud,
+            deterministic failure.
+          </p>
+
+          <h3>Layer 2 — structural isolation</h3>
+          <p>
+            The <code>poker_adjudicator</code> target links
+            <code>bitpoker_gamecore</code> only. Non-deterministic
+            dependencies are not merely discouraged; they are
+            <strong>unlinkable</strong>. A contributor cannot pull
+            <code>boost::asio</code> or the wallet layer into the consensus
+            path with an <code>#include</code> — the link fails at build
+            time, on every machine, before review even sees it.
+          </p>
+
+          <h3>Layer 3 — cross-architecture differential CI</h3>
+          <p>
+            "Byte-identical" is not a claim that survives code review. A
+            frozen corpus of eight real
+            <code>DisputeAdjudicationRequest</code> payloads covering every
+            verdict path is replayed in CI on both
+            <code>ubuntu-24.04</code> (x86_64) and
+            <code>ubuntu-24.04-arm</code> (arm64); each run emits
+            <code>&lt;name&gt; &lt;abi-status&gt;
+            &lt;sha256(result-bytes)&gt;</code> and the workflow diffs the
+            two architectures against a committed golden digest. Any
+            divergence fails the gate. In practice this has held across
+            compiler and optimisation changes — <code>gcc-15 -O0</code>
+            debug rebuilds reproduce goldens generated by
+            <code>gcc-16 -O2</code>.
+          </p>
+
+          <h2 id="pipeline">The adjudication pipeline</h2>
+          <div class="codeblock">
+            <span class="code-caption">adjudication_engine — six stages, short-circuit priority</span>
+            <code>parse request
+  → preflight: context / key / signature validation
+  → shuffle chain reconstruction + NIZK verification
+  → betting replay through the live state machine
+  → decrypt &amp; rank
+  → allocate pot / assign fault
+  → serialise result</code>
+          </div>
+
+          <p>
+            <strong>Preflight</strong> validates both session public keys,
+            checks
+            <code>secret_key · G == authoritative public key point</code>,
+            and attributes every message in the history to a seat by
+            signature. Note the subtlety: an inconsistent secret does
+            <em>not</em> fail the request — it marks
+            <code>secret_valid = false</code>, which the verdict stage
+            treats as a forfeit. The request always produces a verdict if
+            it parses; only malformed input fails.
+          </p>
+
+          <p>
+            <strong>Shuffle verification</strong> extracts the two
+            shuffles, forms the combined key by point addition
+            (order-independent), and verifies
+            <code>before → after</code> stepwise, returning
+            <code>Verified</code> / <code>Incomplete</code> /
+            <code>BadShuffle</code>.
+          </p>
+
+          <p>
+            <strong>Betting replay</strong> runs the recorded actions
+            through the same state machine the live game uses, with seat
+            attribution taken from preflight signatures — so turn-order
+            violations are caught by the engine's own
+            <code>OutOfTurn</code> check, not by a parallel rule.
+          </p>
+
+          <p>
+            <strong>Decrypt and rank</strong> is possible because the
+            adjudicator holds <em>both</em> session secret keys, so it
+            decrypts the verified stack directly without any submitted
+            per-card keys — by the RNG-free route described on the
+            <a href="crypto.html#rng">crypto page</a>.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>Allocation ignores the claimed dispute reason
+              entirely.</strong> The engine does not trust the requester's
+              stated grievance; it derives the outcome from evidence, in
+              short-circuit priority order:
+            </p>
+            <ol>
+              <li>Hard cryptographic violation (bad shuffle)</li>
+              <li>Hard logic violation (illegal action)</li>
+              <li>Fold already resolved the hand</li>
+              <li>Requires decrypt-and-compare — including forfeit for
+                missing/invalid secrets, and refund when the hand never
+                dealt out</li>
+            </ol>
+          </div>
+
+          <p>
+            Pot allocation first returns uncalled excess bets, then splits
+            the matched portion by the comparison result; an odd chip on a
+            split goes to the big-blind seat, matching the live settlement
+            path exactly.
+          </p>
+
+          <h2 id="verdicts">Verdicts, faults and fees</h2>
+          <div class="defs">
+            <table>
+              <tr>
+                <th>verdict</th>
+                <td><code>FIRST_PLAYER_WINS</code> · <code>SECOND_PLAYER_WINS</code> · <code>SPLIT</code> · <code>REFUND</code></td>
+              </tr>
+              <tr>
+                <th>result code</th>
+                <td><code>SHOWDOWN</code> · <code>FORFEIT_NO_SUBMISSION</code> · <code>FORFEIT_INVALID_SECRET</code> · <code>VIOLATION_BAD_SHUFFLE</code> · <code>VIOLATION_ILLEGAL_ACTION</code> · <code>BOTH_FORFEIT</code> · <code>REFUND_UNDEALT</code></td>
+              </tr>
+              <tr>
+                <th>fault</th>
+                <td><code>NONE</code> · <code>FIRST</code> · <code>SECOND</code> · <code>BOTH</code></td>
+              </tr>
+            </table>
+          </div>
+
+          <p>
+            The dispute fee (ADR-004) is charged <strong>only when fault is
+            single-sided</strong> — from the at-fault side's payout, routed
+            to the standard Cosmos fee collector, so it reaches validators
+            through the same pipe as gas. No fee when fault is
+            <code>NONE</code> (a normal showdown or fold is not misconduct)
+            or <code>BOTH</code> (each side simply gets its stake back). Pot
+            conservation is unaffected: the fee changes the split, not the
+            total.
+          </p>
+          <p>
+            The honest assessment recorded in ADR-004: the default
+            <code>dispute_fee_bps</code> has no quantitative justification.
+            Too high and an honest player with the bad luck of a cheating
+            opponent is taxed for it; too low and it fails to deter. It is a
+            governance parameter awaiting real data.
+          </p>
+
+          <h2 id="triggers">Who triggers adjudication</h2>
+          <p>
+            Either participant may trigger it at any time. After
+            <code>dispute_timeout_blocks</code>, <strong>anyone</strong>
+            may — a permissionless crank. This closes the fund-lock risk
+            without requiring the at-fault party's cooperation.
+          </p>
+          <p>
+            "Anyone may" only closes it if someone actually does, so the
+            relay daemon does: it sweeps the sessions it answered and sends
+            the verdict request once the dispute deadline passes, and
+            likewise voids an ACTIVE session that ran out its
+            abandoned-session deadline. The incentive is structural rather
+            than altruistic — a session releases the relay capacity slot it
+            booked only when it terminates, so an escrow left locked is a
+            seat the relay can never sell again.
+          </p>
+
+          <div class="callout warn">
+            <p>
+              <strong>"May" is not "does", and that gap is a client
+              obligation.</strong> Nothing on the chain reveals a secret or
+              asks for a verdict on a player's behalf, so every client must
+              offer both — reveal first, then adjudicate, in that order,
+              because a seat whose secret was never disclosed is scored as
+              having forfeited the whole escrow. The per-hand secret lives
+              in the game core's memory, and the hands that end up disputed
+              are precisely the ones where that memory is gone with the
+              crashed client — so the secret is written down when the intent
+              is opened and deleted once it is spent.
+            </p>
+          </div>
+
+          <p>
+            Automatic adjudication in <code>EndBlock</code> was
+            deliberately <em>not</em> built. If a validator without the cgo
+            engine participated in an <code>EndBlock</code> that calls it,
+            the result would diverge and halt the chain. The permissionless
+            crank achieves the same liveness property — the winner and any
+            watcher are both motivated to call it — at far lower risk.
+          </p>
+
+          <h2 id="version">Versioning and upgrades</h2>
+          <p>
+            An <code>EngineVersion</code> string (currently
+            <strong>0.8.0</strong>) is stamped into every verdict by the C
+            ABI layer. Any change to adjudication behaviour must bump it,
+            and is treated as consensus-relevant — requiring a coordinated
+            chain upgrade, not a client release. The engine's gas metering
+            changed in 0.8.0 (signature and shuffle-proof verification
+            moved from "runs in cgo for free" to charged-by-deterministic-
+            counter), which is exactly the kind of change that version
+            exists to mark.
+          </p>
+          <p>
+            And the standing gate: a pure-Go build of
+            <code>pokerchaind</code> must never reach a validator fleet — it
+            returns <code>ErrAdjudicationUnavailable</code> for every
+            <code>MsgAdjudicateSession</code>, which would lock every
+            disputed escrow forever. Three guards enforce this (no Makefile
+            target produces a pure node; a hand-built pure binary refuses to
+            <code>start</code>; the packager reads <code>go version -m</code>
+            tags and the ArchiveHash stamp).
+          </p>
+
+          <p class="note">
+            Source: <code>bitpoker/src/adjudicator/adjudication_engine.cpp</code>
+            (TH / O8 / ZJH pipelines, shared preflight and shuffle-chain
+            verification), <code>src/adjudicator/poker_adjudicator.cpp</code>
+            (C ABI, version stamp),
+            <code>binding/adjudicator/</code> (Go cgo boundary),
+            <code>pokerchain/x/pokerchain/keeper/msg_adjudicate_session.go</code>.
+            Whitepaper §7, ADR-003, ADR-004, ADR-010.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="relay.html">Next: relay economics →</a>
+          <a href="assets/bitpoker-whitepaper.pdf">Whitepaper (PDF)</a>
+          <a href="lessons.html">Lessons &amp; open problems</a>
+          <a href="https://github.com/bitworker20" rel="noopener noreferrer" target="_blank">Source</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
