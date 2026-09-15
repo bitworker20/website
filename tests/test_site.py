@@ -50,6 +50,7 @@ CONTENT_PAGES = [
     "adjudication.html",
     "relay.html",
     "operations.html",
+    "testnet.html",
     "lessons.html",
 ]
 

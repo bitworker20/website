@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Testnet — BitPoker internal engineering reference</title>
+    <meta name="description" content="Where to get the test software, watch the testnet live, and play against it in the browser.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+    <script src="guard.js"></script>
+    <script src="config.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="overview.html" aria-label="BitPoker engineering home">
+          <img src="assets/bitpoker-mark.svg" alt="" width="34" height="34">
+          <span>BitPoker</span>
+          <span class="brand-tag">internal</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <a href="overview.html">Overview</a>
+          <a href="crypto.html">Cryptography</a>
+          <a href="protocol.html">Protocol</a>
+          <a href="chain.html">Chain</a>
+          <a href="adjudication.html">Adjudication</a>
+          <a href="relay.html">Relay</a>
+          <a href="operations.html">Operations</a>
+          <a href="testnet.html" aria-current="page">Testnet</a>
+          <a href="lessons.html">Lessons</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow">Try it yourself</p>
+          <h1>Testnet: the doors that are open.</h1>
+          <p class="lede">
+            Everything on this page points at the live test network: the
+            software you can download, the explorer that shows every hand
+            settle on chain, and the browser client you can sit down at
+            right now. Chips are free and worth nothing — which is exactly
+            what makes them safe to gamble with.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/bitworker20/bitpoker/releases/latest"
+               rel="noopener noreferrer" target="_blank">Download the test software</a>
+            <a class="btn btn-ghost" href="https://app.bitpk.top"
+               rel="noopener noreferrer" target="_blank">Play online</a>
+            <a class="btn btn-ghost" href="https://explorer.bitpk.top"
+               rel="noopener noreferrer" target="_blank">Open the explorer</a>
+          </div>
+        </div>
+      </section>
+
+      <div class="wrap doc-layout">
+        <nav class="toc" aria-label="On this page">
+          <p class="toc-title">Contents</p>
+          <ol>
+            <li><a href="#download">Test software download</a></li>
+            <li><a href="#online">Play online</a></li>
+            <li><a href="#explorer">Block explorer</a></li>
+            <li><a href="#chips">Getting test chips</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <h2 id="download">Test software download</h2>
+          <p>
+            Every build we want anyone to touch is published to the
+            GitHub releases page — the native clients (desktop, TUI,
+            Android), the CLI, and the <code>.deb</code> packages for
+            running your own relay or node:
+          </p>
+          <p>
+            <a href="https://github.com/bitworker20/bitpoker/releases/latest"
+               rel="noopener noreferrer" target="_blank">
+              github.com/bitworker20/bitpoker/releases/latest</a>
+          </p>
+          <p>
+            <code>/latest</code> always redirects to the newest tagged
+            release, so this link never goes stale. Packages install
+            software, not state: they never touch genesis files, keys or
+            keyrings, and nothing starts on install — see
+            <a href="operations.html">Operations</a> for what a package
+            does and does not do to a host.
+          </p>
+
+          <h2 id="online">Play online</h2>
+          <p>
+            The browser client runs the same gamecore the native clients
+            do, compiled to WASM, and connects to the same relay and chain:
+          </p>
+          <p>
+            <a href="https://app.bitpk.top" rel="noopener noreferrer" target="_blank">
+              app.bitpk.top</a>
+          </p>
+          <p>
+            No install: open the page, fund a seat with test chips, and
+            you are matched against whoever else is waiting. The browser
+            key sits in the page, which is why this path is testnet-only —
+            the threat model is documented, and there is no mainnet for it
+            to lose real money on.
+          </p>
+
+          <h2 id="explorer">Block explorer</h2>
+          <p>
+            Every intent, match, settlement and dispute lands on chain and
+            is visible here — the fastest way to see the escrow lifecycle
+            a hand actually walks through:
+          </p>
+          <p>
+            <a href="https://explorer.bitpk.top" rel="noopener noreferrer" target="_blank">
+              explorer.bitpk.top</a>
+          </p>
+          <p>
+            Useful things to look for: <code>OpenGameIntent</code>
+            matching into a session, the escrow lock and release around
+            each hand, and — if you abandon a session mid-play — the
+            evidence → DISPUTED → adjudication trail with the engine's
+            verdict and the payout split.
+          </p>
+
+          <h2 id="chips">Getting test chips</h2>
+          <p>
+            Test chips (UCHIP) come from the faucet, behind the same
+            invitation code that opens this site: redeem a code and the
+            grant rides with it. Codes are issued by hand, counted, and can
+            be revoked — the faucet enforces per-wallet, per-IP and daily
+            budget limits, so a leaked code drains a capped amount, not a
+            treasury.
+          </p>
+          <div class="callout">
+            <p>
+              <strong>Chips have no monetary value.</strong> This is a
+              test network: the software is real, the cryptography is
+              real, the money is not. Do not treat any address on it as
+              one you would reuse elsewhere.
+            </p>
+          </div>
+
+          <p class="note">
+            Service endpoints live in <code>config.js</code> (faucet API,
+            explorer, webapp) so an operator can repoint a deployment in
+            one place. Faucet operations: <code>docs/faucet/README.md</code>.
+          </p>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/bitpoker-mark.svg" alt="" width="40" height="40">
+          <p>
+            BitPoker — trust-minimised heads-up poker over mental cryptography
+            and on-chain adjudication. Internal engineering reference; not for
+            distribution.
+          </p>
+        </div>
+
+        <nav class="footer-links" aria-label="Footer">
+          <a href="https://github.com/bitworker20/bitpoker/releases/latest" rel="noopener noreferrer" target="_blank">Downloads</a>
+          <a href="https://app.bitpk.top" rel="noopener noreferrer" target="_blank">Play online</a>
+          <a href="https://explorer.bitpk.top" rel="noopener noreferrer" target="_blank">Explorer</a>
+          <a href="overview.html">Back to overview</a>
+        </nav>
+      </div>
+      <div class="wrap footer-note">
+        <p>
+          Testnet software. Chips have no monetary value.
+          <button class="lock" type="button" data-lock>Lock this browser</button>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
