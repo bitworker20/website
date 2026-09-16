@@ -87,11 +87,11 @@
             <table>
               <tr>
                 <th>C++ unit tests</th>
-                <td>~491 tests across core crypto, protocol, games, chain, relay, adjudicator, client, robot. <code>make test</code>.</td>
+                <td>Core crypto, protocol, games, chain, relay, adjudicator, client, robot. <code>make test</code>.</td>
               </tr>
               <tr>
                 <th>Go unit tests</th>
-                <td>46 test files covering keeper, params, genesis, relay daemon, protocol. <code>cd pokerchain &amp;&amp; make test</code>.</td>
+                <td>Keeper, params, genesis, relay daemon, protocol. <code>cd pokerchain &amp;&amp; make test</code>.</td>
               </tr>
               <tr>
                 <th>Determinism gate</th>
@@ -128,7 +128,7 @@
           </p>
           <ul class="client-list">
             <li><b>CLI</b> (<code>app/main.cpp</code>) — a thin REPL over <code>bitpoker_client</code>; the development reference.</li>
-            <li><b>Qt desktop</b> — five screens with an animated felt table for TH and ZJH.</li>
+            <li><b>Qt desktop</b> — five screens with an animated felt table for TH, O8 and ZJH.</li>
             <li><b>Android</b> — Qt/QML mobile build.</li>
             <li><b>TUI</b> (<code>bitpoker-tui</code>) — terminal wallet + table with an intent watcher that auto-joins matched sessions; the usual host for unattended play.</li>
             <li><b>Browser</b> — the WASM path: <code>gamecore.wasm</code> via embind with JavaScript driving the session, behind the shared headless layer <code>@bitpoker/poker-session</code> (relay transport, gamecore worker, hand state machine, recovery judgement, fee discovery). The browser path never links the asio transport or the wallet layer — each front end injects its own signing stack.</li>
@@ -136,7 +136,7 @@
           <p>
             Two further components share the same core: a <strong>dispatcher</strong>
             that routes intents to worker clients, and a <strong>robot
-            player</strong> — a personality-driven bot for TH and ZJH built on a
+            player</strong> — a personality-driven bot for TH, O8 and ZJH built on a
             sans-IO <code>DecisionView</code> seam so the brain is testable
             without a network.
           </p>

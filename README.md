@@ -38,6 +38,8 @@ operations.html     the verification matrix, WASM staging trap,
                   coordinated upgrades, packaging, command reference
 lessons.html        the scar tissue: eight failures and the rules they left,
                   plus the open problems stated plainly
+testnet.html        how to get on the testnet: client downloads, the browser
+                  client, the explorer, how test chips are issued
 styles.css          the site's stylesheet (shared by every page)
 script.js           mobile menu, copy buttons, "lock this browser"
 install.sh          the one-line server installer (kept for ops; no longer
@@ -49,7 +51,7 @@ assets/screenshots/ real captures of the Qt desktop client
 tests/test_site.py  contract suite
 ```
 
-## The page model: one unguessable door, seven fixed rooms
+## The page model: one unguessable door, fixed rooms behind it
 
 The gate's address must be unguessable, but cross-page links must be fixed
 names that survive a passphrase rotation. Those two requirements conflict,
@@ -64,10 +66,15 @@ and the token page is the seam:
   block in `gate.js` **and** `guard.js` together — the fixed pages never
   move, so no link inside the site ever breaks.
 
-`guard.js` is the same trust model as the gate, stated plainly: it keeps
-fixed-name pages out of *sight* from someone who stumbles onto a URL, not
-out of reach of anyone determined. For real access control, put the whole
-site behind HTTP basic auth or an identity proxy (Cloudflare Access,
+`guard.js` is **weaker than the token page it sits behind, and it is the
+only thing in front of every page except the stub.** A name like
+`overview.html` is not stumbled upon, it is guessed on the first try, and
+the guard only runs in a browser: `curl https://<host>/overview.html`
+returns the whole page whatever localStorage holds. So the token page's
+name is the one real secret here, and it protects nothing but itself —
+everything written on the other pages should be read as published to
+anyone who knows the host. For access control that actually holds, put the
+whole site behind HTTP basic auth or an identity proxy (Cloudflare Access,
 oauth2-proxy) and drop the gate. This is a locked door on a building with
 no walls.
 
@@ -133,6 +140,12 @@ It keeps the site **out of sight**, not out of reach:
   (Directory listing would reveal the fixed-name pages too — `guard.js`
   stops casual reading, not a determined reader with the verifier, which
   ships in the file.)
+- **The fixed-name pages are static files anyone can fetch.** `guard.js`
+  can only redirect a browser, so `curl`, a crawler that ignores
+  `robots.txt`, or a caching proxy gets the full page without ever passing
+  the gate — and the names are ordinary words, not secrets. The gate
+  protects the *address of the stub*; it does not protect the content of
+  the pages behind it.
 - The derivation uses WebCrypto where it exists and a bundled PBKDF2
   (~0.7 s, sliced across timeouts so the page stays responsive) where it
   does not, so the gate also opens over plain http and `file://`.

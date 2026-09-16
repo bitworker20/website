@@ -6,13 +6,14 @@
 // this browser has not been through the gate — localStorage does not hold
 // the verifier the gate stores on entry — bounce back to the door.
 //
-// This is the same trust model as the gate itself, stated plainly: it keeps
-// the pages out of sight from someone who stumbles onto a fixed URL, not
-// out of reach of anyone determined. The verifier is not secret (it ships
-// in this file); what protects the entry is that the *token page* is
-// unguessable and this guard makes the fixed-name pages reachable only
-// behind it. For real access control, put the whole site behind an
-// identity proxy — see README.
+// Be clear about how little this is worth: it is weaker than the token
+// page in front of it. The verifier is not secret (it ships in this file),
+// the page names are guessed on the first try, and the check only runs in
+// a browser — fetching any of these URLs with curl returns the whole page.
+// It keeps the pages out of sight of a visitor poking at the site; it does
+// not keep them out of reach of anyone at all. Treat everything on these
+// pages as published to whoever knows the host. For access control that
+// holds, put the whole site behind an identity proxy — see README.
 //
 // The config block below is kept in lockstep with gate.js by tools/gate.py;
 // rotating the passphrase rewrites both.
