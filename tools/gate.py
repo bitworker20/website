@@ -19,7 +19,7 @@ Usage:
 
     python3 tools/gate.py set 'some passphrase'   # rotate; renames the entry
                                                 # stub, rewrites gate.js and
-                                                # guard.js together
+                                                # turnstile.js together
     python3 tools/gate.py show                    # current config
     python3 tools/gate.py check 'some passphrase' # does it open the gate?
 
@@ -47,7 +47,7 @@ from pathlib import Path
 
 SITE = Path(__file__).resolve().parent.parent
 GATE_JS = SITE / "gate.js"
-GUARD_JS = SITE / "guard.js"
+TURNSTILE_JS = SITE / "turnstile.js"
 
 ITERATIONS = 250_000
 VERIFIER_BYTES = 16
@@ -78,16 +78,17 @@ def read_config() -> dict:
 
 
 def write_config(config: dict) -> None:
-    """Rewrite the /* gate:config */ block in gate.js AND guard.js.
+    """Rewrite the /* gate:config */ block in gate.js AND turnstile.js.
 
-    guard.js is the content-page guard: every fixed-name documentation page
-    checks the same verifier before rendering. Both files carry the same
-    block with the same marker, so one rotation updates the door and the
-    pages behind it together — a stale guard.js would bounce every visitor
-    who just came through the freshly rotated gate.
+    turnstile.js is the content-page check: every fixed-name documentation
+    page accepts the same verifier (the passphrase door) before rendering.
+    Both files carry the same block with the same marker, so one rotation
+    updates the door and the pages behind it together — a stale turnstile.js
+    would bounce every visitor who just came through the freshly rotated
+    gate, leaving the toll as the only way in.
     """
     rendered = json.dumps(config, indent=4).replace("\n", "\n  ")
-    for target in (GATE_JS, GUARD_JS):
+    for target in (GATE_JS, TURNSTILE_JS):
         if not target.is_file():
             continue
         source = target.read_text(encoding="utf-8")

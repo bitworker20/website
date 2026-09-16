@@ -1,0 +1,293 @@
+<!doctype html>
+<!--
+  The toll booth. Outside the turnstile by necessity: this is where someone
+  who has not paid is sent, so it must render for anyone. Nothing on it may
+  say anything about what is behind the door.
+
+  Self-contained like the gate — the booth should not depend on the stylesheet
+  of the room behind it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BitPoker — Day pass</title>
+    <meta name="description" content="By the day.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="assets/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&amp;family=Barlow:wght@400;500&amp;display=swap"
+      rel="stylesheet"
+    >
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #ece7dc;
+        --dim: #6d7d90;
+        --gold: #e3ac3e;
+        --felt: #0b0e13;
+        --slot: #131922;
+        --edge: #212a36;
+        --bad: #d2603f;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        padding: 40px 24px;
+        background:
+          radial-gradient(120% 80% at 50% -10%, rgba(227, 172, 62, .10), transparent 60%),
+          radial-gradient(90% 70% at 50% 115%, rgba(30, 74, 58, .28), transparent 65%),
+          var(--felt);
+        color: var(--ink);
+        font-family: "Barlow", "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+      }
+
+      main { width: min(100%, 420px); }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 3.5px;
+        text-transform: uppercase;
+        color: var(--gold);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        font-weight: 600;
+        font-size: clamp(28px, 7vw, 40px);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        line-height: 1;
+      }
+
+      .lede {
+        margin: 14px auto 0;
+        max-width: 34ch;
+        color: var(--dim);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      /* The same card as the gate, and it means the same things: face down is
+         "not judged", an ace is "paid", a seven is "judged and refused". */
+      .deck {
+        position: relative;
+        width: 118px;
+        height: 167px;
+        margin: 28px auto 24px;
+        perspective: 900px;
+      }
+
+      .card {
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+        transition: transform .55s cubic-bezier(.4, .1, .2, 1);
+      }
+      .flipped .card { transform: rotateY(180deg); }
+
+      .face {
+        position: absolute;
+        inset: 0;
+        border-radius: 11px;
+        backface-visibility: hidden;
+        display: grid;
+        place-items: center;
+        box-shadow: 0 22px 46px rgba(0, 0, 0, .5);
+      }
+
+      .face-back {
+        background: linear-gradient(160deg, #16202c, #0e141c);
+        border: 1px solid #232e3c;
+      }
+      .face-back img { width: 44px; height: 44px; opacity: .9; }
+
+      .face-front {
+        background: linear-gradient(180deg, #f6f2e8, #e6dfd0);
+        color: #1b1b1f;
+        transform: rotateY(180deg);
+        font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+        gap: 2px;
+      }
+      .face-front .pip { font-size: 46px; font-weight: 600; line-height: 1; }
+      .face-front .suit { font-size: 26px; }
+      .face-front.is-bad { color: var(--bad); }
+
+      .toll {
+        margin: 0 0 22px;
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        background: rgba(19, 25, 34, .7);
+        text-align: left;
+        font-size: 14px;
+      }
+      .toll > div {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--edge);
+      }
+      .toll > div:last-child { border-bottom: 0; }
+      .toll dt {
+        flex: 0 0 62px;
+        color: var(--dim);
+        font-size: 12px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+      .toll dd {
+        margin: 0;
+        flex: 1;
+        overflow-wrap: anywhere;
+      }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+      .copy {
+        flex: 0 0 auto;
+        border: 0;
+        background: none;
+        color: var(--gold);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .slot {
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--edge);
+        background: var(--slot);
+        color: var(--ink);
+        font: 500 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 1px;
+        text-align: center;
+      }
+      .slot::placeholder { color: #46566a; letter-spacing: 2px; }
+
+      button[type="submit"] {
+        margin-top: 10px;
+        width: 100%;
+        padding: 13px 16px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--gold);
+        color: #1b1b1f;
+        font: 600 15px/1 "Barlow", system-ui, sans-serif;
+        letter-spacing: .5px;
+        cursor: pointer;
+      }
+      button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
+
+      .note {
+        margin: 18px auto 0;
+        max-width: 38ch;
+        min-height: 3em;
+        color: var(--dim);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      .note.bad { color: var(--bad); }
+
+      .alt { margin: 22px 0 0; font-size: 13px; color: var(--dim); }
+      .alt a { color: var(--gold); }
+
+      @media (prefers-reduced-motion: reduce) {
+        .card { transition: none; }
+        .flipped .card { transform: none; }
+        .flipped .face-back { display: none; }
+        .flipped .face-front { transform: none; }
+      }
+    </style>
+    <script src="config.js"></script>
+    <script src="pay.js" defer></script>
+  </head>
+
+  <body>
+    <main>
+      <p class="eyebrow">BitPoker</p>
+      <h1>One day, one toll</h1>
+      <p class="lede">
+        Run the command below — or pay the same amount from any client with
+        the code in the memo — then paste the transaction hash. The pass lasts
+        a day from the block that carried it.
+      </p>
+
+      <div class="deck" data-deck>
+        <div class="card" data-knock>
+          <div class="face face-back">
+            <img src="assets/bitpoker-mark.svg" alt="" width="44" height="44">
+          </div>
+          <div class="face face-front" data-face>
+            <span class="pip" data-pip>A</span>
+            <span class="suit" data-suit>&spades;</span>
+          </div>
+        </div>
+      </div>
+
+      <dl class="toll">
+        <div>
+          <dt>Send</dt>
+          <dd data-amount>—</dd>
+        </div>
+        <div>
+          <dt>To</dt>
+          <dd data-address>—</dd>
+        </div>
+        <div>
+          <dt>Command</dt>
+          <dd class="mono" data-command>—</dd>
+          <button class="copy" type="button" data-copy="command">copy</button>
+        </div>
+        <div>
+          <dt>Memo</dt>
+          <dd class="mono" data-challenge>—</dd>
+          <button class="copy" type="button" data-copy="memo">copy</button>
+        </div>
+      </dl>
+
+      <form data-form>
+        <label class="visually-hidden" for="txhash" style="position:absolute;left:-9999px">Transaction hash</label>
+        <input
+          class="slot"
+          id="txhash"
+          type="text"
+          data-hash
+          placeholder="TRANSACTION HASH"
+          autocomplete="off"
+          autocapitalize="characters"
+          autocorrect="off"
+          spellcheck="false"
+          maxlength="64"
+          enterkeyhint="go"
+        >
+        <button type="submit" data-submit>Check the chain</button>
+      </form>
+
+      <p class="note" data-note role="status" aria-live="polite">
+        Chips have no monetary value here; the toll is a turnstile, not a price.
+      </p>
+
+      <p class="alt">Have the passphrase? <a href="index.html">Use that door instead.</a></p>
+    </main>
+  </body>
+</html>

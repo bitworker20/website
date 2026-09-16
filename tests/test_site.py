@@ -6,14 +6,17 @@ the navigation must resolve on every page, the in-page TOC anchors must
 point at headings that exist, and the accessibility affordances (skip
 link, menu semantics, reduced motion) must survive edits.
 
-The site is one unguessable door and seven fixed rooms: index.html is the
-invitation gate, the real site starts at a token page named after a token
-derived from the passphrase, and every content page has a fixed name and
-runs guard.js before anything renders. These tests find the token page the
+The site is one unguessable door and a row of fixed rooms: index.html is
+the invitation gate, the real site starts at a token page named after a
+token derived from the passphrase, and every content page has a fixed name
+and runs turnstile.js before anything renders. The turnstile takes either
+credential — the passphrase the gate stores, or a day pass bought on
+pay.html by paying the toll on chain. These tests find the token page the
 way the gate does — by reading gate.js — and additionally check that
 nothing in the gate leaks the way in, that both of its doors are still
-wired, that every content page is guarded, and that rotating the
-passphrase keeps gate.js and guard.js in lockstep.
+wired, that every content page is behind the turnstile, that the booth
+that sells passes is *not* (or nobody could ever buy one), and that
+rotating the passphrase keeps gate.js and turnstile.js in lockstep.
 
 Run from the repository root:
 
@@ -32,7 +35,8 @@ from pathlib import Path
 
 SITE = Path(__file__).resolve().parent.parent
 GATE_JS = SITE / "gate.js"
-GUARD_JS = SITE / "guard.js"
+TURNSTILE_JS = SITE / "turnstile.js"
+PAY_JS = SITE / "pay.js"
 GATE_HTML = (SITE / "index.html").read_text(encoding="utf-8")
 GATE_CONFIG = json.loads(
     re.search(r"var CONFIG = (\{.*?\});", GATE_JS.read_text(encoding="utf-8"), re.DOTALL).group(1)
@@ -123,18 +127,23 @@ class TestEveryContentPage(unittest.TestCase):
             html = page(name)
             self.assertIn('href="styles.css"', html, name)
 
-    def test_every_content_page_is_guarded_before_render(self) -> None:
-        """guard.js must be a blocking <script> in <head>, before script.js,
-        so an unauthenticated visitor never sees the page flash first."""
+    def test_every_content_page_is_behind_the_turnstile(self) -> None:
+        """turnstile.js must be a blocking <script> in <head>, before
+        script.js, so an unauthenticated visitor never sees the page flash
+        first — and after config.js, which carries the toll it checks
+        against. A turnstile that runs first reads no toll and would send a
+        paying visitor back to the gate."""
         for name in CONTENT_PAGES:
             html = page(name)
-            guard_at = html.index('src="guard.js"')
+            turnstile_at = html.index('src="turnstile.js"')
             head_end = html.index("</head>")
-            self.assertLess(guard_at, head_end, f"{name}: guard.js must load in <head>")
-            self.assertNotIn('defer', html[guard_at:html.index(">", guard_at)],
-                           f"{name}: guard.js must not be deferred")
-            self.assertLess(guard_at, html.index('src="script.js"'),
-                           f"{name}: guard.js must load before script.js")
+            self.assertLess(turnstile_at, head_end, f"{name}: turnstile.js must load in <head>")
+            self.assertNotIn('defer', html[turnstile_at:html.index(">", turnstile_at)],
+                           f"{name}: turnstile.js must not be deferred")
+            self.assertLess(html.index('src="config.js"'), turnstile_at,
+                           f"{name}: config.js must load before turnstile.js")
+            self.assertLess(turnstile_at, html.index('src="script.js"'),
+                           f"{name}: turnstile.js must load before script.js")
 
     def test_every_page_has_skip_link_targeting_main(self) -> None:
         for name in CONTENT_PAGES:
@@ -310,13 +319,13 @@ class TestGate(unittest.TestCase):
         self.assertIn("overview.html", stub)
         self.assertIn("location.replace", stub)
 
-    def test_guard_config_matches_gate_config(self) -> None:
-        guard = GUARD_JS.read_text(encoding="utf-8")
-        guard_config = json.loads(
-            re.search(r"var CONFIG = (\{.*?\});", guard, re.DOTALL).group(1)
+    def test_turnstile_config_matches_gate_config(self) -> None:
+        turnstile = TURNSTILE_JS.read_text(encoding="utf-8")
+        turnstile_config = json.loads(
+            re.search(r"var CONFIG = (\{.*?\});", turnstile, re.DOTALL).group(1)
         )
-        self.assertEqual(guard_config, GATE_CONFIG,
-                         "guard.js config drifted from gate.js — run tools/gate.py")
+        self.assertEqual(turnstile_config, GATE_CONFIG,
+                         "turnstile.js config drifted from gate.js — run tools/gate.py")
 
     def test_neither_page_is_indexable(self) -> None:
         self.assertIn('content="noindex, nofollow"', GATE_HTML)
@@ -345,7 +354,8 @@ class TestGate(unittest.TestCase):
 class TestScripts(unittest.TestCase):
     def test_scripts_parse(self) -> None:
         for js in (SCRIPT, GATE_JS.read_text(encoding="utf-8"),
-                  GUARD_JS.read_text(encoding="utf-8"), CONFIG_JS):
+                  TURNSTILE_JS.read_text(encoding="utf-8"),
+                  PAY_JS.read_text(encoding="utf-8"), CONFIG_JS):
             compile_ok = subprocess.run(
                 ["node", "--check", "-"], input=js, capture_output=True, text=True,
             ) if _have_node() else None
@@ -364,10 +374,90 @@ class TestScripts(unittest.TestCase):
         self.assertIn('removeItem("bitpoker.gate")', SCRIPT)
         self.assertIn('removeItem("bitpoker.invite")', SCRIPT)
 
-    def test_guard_uses_the_same_storage_key_as_the_gate(self) -> None:
-        guard = GUARD_JS.read_text(encoding="utf-8")
-        self.assertIn('STORE_KEY = "bitpoker.gate"', guard)
+    def test_turnstile_uses_the_same_storage_key_as_the_gate(self) -> None:
+        turnstile = TURNSTILE_JS.read_text(encoding="utf-8")
+        self.assertIn('STORE_KEY = "bitpoker.gate"', turnstile)
         self.assertIn('STORE_KEY = "bitpoker.gate"', GATE_JS.read_text(encoding="utf-8"))
+
+    def test_lock_forgets_the_day_pass_too(self) -> None:
+        """Locking the browser must forget every way back in. A pass left
+        behind is a paid day handed to whoever has the machine next."""
+        self.assertIn('removeItem("bitpoker.pass")', SCRIPT)
+        self.assertIn('removeItem("bitpoker.challenge")', SCRIPT)
+
+
+# ──────────────────────────────  the toll booth  ─────────────────────────────
+
+
+class TestTurnstile(unittest.TestCase):
+    """pay.html sells a day pass for an on-chain payment; turnstile.js takes
+    it. Both doors stay open: the passphrase is the one that still works when
+    the chain cannot be read."""
+
+    def test_the_turnstile_takes_either_credential(self) -> None:
+        js = TURNSTILE_JS.read_text(encoding="utf-8")
+        self.assertIn("hasPassphrase", js)
+        self.assertIn("hasDayPass", js)
+        self.assertIn('PASS_KEY = "bitpoker.pass"', js)
+
+    def test_a_pass_is_bound_to_the_toll_it_paid(self) -> None:
+        """Repointing the site at another destination must invalidate every
+        outstanding pass — otherwise yesterday's payments keep opening a door
+        whose beneficiary has changed."""
+        self.assertIn("pass.to === t.to", TURNSTILE_JS.read_text(encoding="utf-8"))
+
+    def test_config_declares_the_toll_and_where_to_check_it(self) -> None:
+        # config.js is hand-written JavaScript, not JSON (unquoted keys,
+        # comments), so this reads it the way a reviewer would rather than
+        # pretending it parses.
+        self.assertRegex(CONFIG_JS, r"toll:\s*\{", "config.js declares no toll")
+        for key in ("to", "uchip", "hours"):
+            self.assertRegex(CONFIG_JS, rf"\b{key}:", f"toll.{key} missing from config.js")
+        self.assertRegex(CONFIG_JS, r"chainRest:\s*\[\s*\"http",
+                         "config.js names no endpoint to read the chain")
+
+    def test_the_booth_is_outside_the_turnstile(self) -> None:
+        """pay.html is where an unpaid visitor is sent. Putting it behind the
+        turnstile would be a closed loop with no way in."""
+        booth = page("pay.html")
+        self.assertNotIn("turnstile.js", booth)
+        self.assertIn("config.js", booth)
+        self.assertIn("pay.js", booth)
+
+    def test_the_booth_gives_nothing_away(self) -> None:
+        """It renders for anyone, so it must not name the rooms or the stub."""
+        booth = page("pay.html")
+        self.assertNotIn(GATE_CONFIG["target"], booth)
+        for name in CONTENT_PAGES:
+            self.assertNotIn(name, booth, f"pay.html names {name}")
+
+    def test_the_booths_local_references_exist(self) -> None:
+        for href in local_hrefs(page("pay.html")):
+            self.assertTrue((SITE / href).is_file(), f"pay.html: missing local file {href}")
+
+    def test_the_price_is_not_written_twice(self) -> None:
+        """The amount lives in config.js. A copy in pay.js is a second number
+        to keep in step, and the one that would silently go stale."""
+        # \b so the uchip-per-CHIP constant (1000000) is not mistaken for a
+        # hard-coded toll (100000).
+        self.assertNotRegex(PAY_JS.read_text(encoding="utf-8"), r"\b100000\b")
+
+    def test_an_unreadable_chain_is_never_reported_as_an_unpaid_toll(self) -> None:
+        """The one failure this page must not have: telling someone who just
+        paid that they did not. Same rule as the gate's card for an
+        unreachable faucet daemon."""
+        js = PAY_JS.read_text(encoding="utf-8")
+        self.assertIn("syncing", js)
+        self.assertIn("Could not reach a node", js)
+
+    def test_the_payment_must_have_executed(self) -> None:
+        """Inclusion in a block is not execution: a failed transfer moves
+        nothing. Checked here because this is the third place in the tree
+        where trusting the wrong field has cost real money."""
+        js = PAY_JS.read_text(encoding="utf-8")
+        self.assertIn("response.code !== 0", js)
+        self.assertIn("MsgFundCommunityPool", js)
+        self.assertIn("MsgSend", js)
 
 
 def _have_node() -> bool:

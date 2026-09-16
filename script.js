@@ -46,6 +46,12 @@
       try {
         window.localStorage.removeItem("bitpoker.gate");
         window.localStorage.removeItem("bitpoker.invite");
+        // The day pass and the challenge it was bought with: locking the
+        // browser must forget every way back in, not just the passphrase —
+        // otherwise "lock" leaves a paid pass sitting there for whoever has
+        // the machine next.
+        window.localStorage.removeItem("bitpoker.pass");
+        window.localStorage.removeItem("bitpoker.challenge");
       } catch (error) {
         /* storage blocked: there was nothing remembered to forget */
       }
